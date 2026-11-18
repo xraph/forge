@@ -1,9 +1,12 @@
 package security
 
 import (
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"net/http"
@@ -59,6 +62,18 @@ type CSRFConfig struct {
 	// TTL is the token time-to-live (default: 12 hours)
 	TTL time.Duration `yaml:"ttl"`
 
+	// Secret is the HMAC key that signs CSRF tokens. Set it to the same value
+	// on every replica so a token issued by one instance validates on
+	// another, and so tokens survive a restart. When empty, a random key is
+	// generated per process.
+	Secret string `yaml:"secret"`
+
+	// BindToSession ties each token to the current session ID when
+	// SessionMiddleware runs before the CSRF middleware. A token issued
+	// before login is then replaced on the next safe request after login,
+	// and an unsafe request carrying it is rejected. Off by default.
+	BindToSession bool `yaml:"bind_to_session"`
+
 	// SafeMethods are HTTP methods that don't require CSRF protection
 	// Default: GET, HEAD, OPTIONS, TRACE
 	SafeMethods []string `yaml:"safe_methods"`
@@ -102,11 +117,39 @@ type csrfToken struct {
 	ExpiresAt time.Time
 }
 
+// maxStoredCSRFTokens bounds the map behind SetToken. The middleware never
+// writes to it, but an application that does should not be able to grow it
+// without limit either.
+const maxStoredCSRFTokens = 100_000
+
+// Signed token layout, before base64url encoding:
+//
+//	version (1) | expiry unix seconds, big endian (8) | nonce (TokenLength) | HMAC-SHA256 (32)
+const (
+	csrfTokenVersion   = 1
+	csrfTokenMACDomain = "forge-csrf-v1" //nolint:gosec // G101: a domain separation label for the MAC input, not a credential
+)
+
 // CSRFProtection manages CSRF token generation and validation.
+//
+// The middleware uses the signed double-submit cookie pattern. A token is a
+// random nonce and an expiry, signed with an HMAC key that only the server
+// knows. The same token goes into a cookie and must come back in a header,
+// form field or query parameter on unsafe requests. Nothing is stored on the
+// server, so a client cannot make the server hold state by sending cookies,
+// and a cookie value the server did not sign is never trusted.
 type CSRFProtection struct {
 	config CSRFConfig
-	tokens sync.Map // map[string]*csrfToken - session ID -> token
 	logger forge.Logger
+	secret []byte
+
+	lookupSource string
+	lookupKey    string
+
+	// tokens backs the SetToken/GetToken/ValidateToken API for applications
+	// that keep their own per-session tokens. It is bounded and swept.
+	mu     sync.Mutex
+	tokens map[string]csrfToken
 }
 
 // NewCSRFProtection creates a new CSRF protection instance.
@@ -131,13 +174,35 @@ func NewCSRFProtection(config CSRFConfig, logger forge.Logger) *CSRFProtection {
 		config.SafeMethods = []string{"GET", "HEAD", "OPTIONS", "TRACE"}
 	}
 
-	return &CSRFProtection{
+	secret := []byte(config.Secret)
+	if len(secret) == 0 {
+		// A per-process key keeps the default config working. Tokens then do
+		// not survive a restart or validate on another replica, which is what
+		// the old in-memory token map did too. Set Secret to share them.
+		secret = make([]byte, 32)
+		if _, err := rand.Read(secret); err != nil {
+			panic(fmt.Sprintf("security: failed to generate csrf secret: %v", err))
+		}
+	}
+
+	c := &CSRFProtection{
 		config: config,
 		logger: logger,
+		secret: secret,
+		tokens: make(map[string]csrfToken),
 	}
+
+	// Parse the lookup once here instead of on every request.
+	if source, key, ok := strings.Cut(config.TokenLookup, ":"); ok {
+		c.lookupSource = strings.TrimSpace(source)
+		c.lookupKey = strings.TrimSpace(key)
+	}
+
+	return c
 }
 
-// GenerateToken generates a new CSRF token.
+// GenerateToken generates a new random CSRF token. It is not signed; the
+// middleware uses IssueToken instead.
 func (c *CSRFProtection) GenerateToken() (string, error) {
 	bytes := make([]byte, c.config.TokenLength)
 	if _, err := rand.Read(bytes); err != nil {
@@ -147,31 +212,120 @@ func (c *CSRFProtection) GenerateToken() (string, error) {
 	return base64.URLEncoding.EncodeToString(bytes), nil
 }
 
-// SetToken stores a CSRF token for a session.
-func (c *CSRFProtection) SetToken(sessionID, token string) {
-	c.tokens.Store(sessionID, &csrfToken{
-		Value:     token,
-		ExpiresAt: time.Now().Add(c.config.TTL),
-	})
-}
+// IssueToken returns a new signed CSRF token that expires after the
+// configured TTL. binding ties the token to a value such as a session ID;
+// VerifyToken must then be given the same binding. Pass "" for none.
+func (c *CSRFProtection) IssueToken(binding string) (string, error) {
+	raw := make([]byte, 1+8+c.config.TokenLength, 1+8+c.config.TokenLength+sha256.Size)
+	raw[0] = csrfTokenVersion
+	binary.BigEndian.PutUint64(raw[1:9], uint64(time.Now().Add(c.config.TTL).Unix())) //nolint:gosec // G115: a Unix time after 1970 is never negative
 
-// GetToken retrieves the CSRF token for a session.
-func (c *CSRFProtection) GetToken(sessionID string) (string, bool) {
-	if val, ok := c.tokens.Load(sessionID); ok {
-		token := val.(*csrfToken)
-		if time.Now().After(token.ExpiresAt) {
-			c.tokens.Delete(sessionID)
-
-			return "", false
-		}
-
-		return token.Value, true
+	if _, err := rand.Read(raw[9:]); err != nil {
+		return "", fmt.Errorf("failed to generate csrf token: %w", err)
 	}
 
-	return "", false
+	raw = append(raw, c.tokenMAC(raw, binding)...)
+
+	return base64.RawURLEncoding.EncodeToString(raw), nil
 }
 
-// ValidateToken validates a CSRF token against the stored token.
+// VerifyToken checks that token was issued by this server for binding and has
+// not expired. The signature is compared in constant time.
+func (c *CSRFProtection) VerifyToken(token, binding string) error {
+	if token == "" {
+		return ErrCSRFTokenMissing
+	}
+
+	// Reject anything of the wrong size before decoding, so an oversized
+	// cookie costs nothing beyond a length check.
+	rawLen := 1 + 8 + c.config.TokenLength + sha256.Size
+	if len(token) != base64.RawURLEncoding.EncodedLen(rawLen) {
+		return ErrCSRFTokenInvalid
+	}
+
+	raw, err := base64.RawURLEncoding.DecodeString(token)
+	if err != nil || len(raw) != rawLen || raw[0] != csrfTokenVersion {
+		return ErrCSRFTokenInvalid
+	}
+
+	body, mac := raw[:rawLen-sha256.Size], raw[rawLen-sha256.Size:]
+	if !hmac.Equal(mac, c.tokenMAC(body, binding)) {
+		return ErrCSRFTokenInvalid
+	}
+
+	expiry := int64(binary.BigEndian.Uint64(body[1:9])) //nolint:gosec // G115: the value was written from a non-negative int64 and is covered by the MAC
+	if time.Now().Unix() > expiry {
+		return ErrCSRFTokenExpired
+	}
+
+	return nil
+}
+
+// tokenMAC signs a token body together with its binding.
+func (c *CSRFProtection) tokenMAC(body []byte, binding string) []byte {
+	h := hmac.New(sha256.New, c.secret)
+	h.Write([]byte(csrfTokenMACDomain))
+	h.Write(body)
+	h.Write([]byte(binding))
+
+	return h.Sum(nil)
+}
+
+// SetToken stores a CSRF token for a session ID chosen by the application.
+// The middleware does not use this store. The store is bounded: expired
+// entries are swept when it fills up, and if it is still full an arbitrary
+// entry is dropped.
+func (c *CSRFProtection) SetToken(sessionID, token string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if _, exists := c.tokens[sessionID]; !exists && len(c.tokens) >= maxStoredCSRFTokens {
+		c.sweepLocked(time.Now())
+
+		if len(c.tokens) >= maxStoredCSRFTokens {
+			for k := range c.tokens {
+				delete(c.tokens, k)
+
+				break
+			}
+		}
+	}
+
+	c.tokens[sessionID] = csrfToken{
+		Value:     token,
+		ExpiresAt: time.Now().Add(c.config.TTL),
+	}
+}
+
+// sweepLocked removes expired entries. c.mu must be held.
+func (c *CSRFProtection) sweepLocked(now time.Time) {
+	for k, t := range c.tokens {
+		if now.After(t.ExpiresAt) {
+			delete(c.tokens, k)
+		}
+	}
+}
+
+// GetToken retrieves the CSRF token stored for a session with SetToken.
+func (c *CSRFProtection) GetToken(sessionID string) (string, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	token, ok := c.tokens[sessionID]
+	if !ok {
+		return "", false
+	}
+
+	if time.Now().After(token.ExpiresAt) {
+		delete(c.tokens, sessionID)
+
+		return "", false
+	}
+
+	return token.Value, true
+}
+
+// ValidateToken validates a CSRF token against the one stored with SetToken.
 func (c *CSRFProtection) ValidateToken(sessionID, providedToken string) error {
 	if providedToken == "" {
 		return ErrCSRFTokenMissing
@@ -190,31 +344,40 @@ func (c *CSRFProtection) ValidateToken(sessionID, providedToken string) error {
 	return nil
 }
 
-// DeleteToken removes a CSRF token for a session.
+// DeleteToken removes a CSRF token stored with SetToken.
 func (c *CSRFProtection) DeleteToken(sessionID string) {
-	c.tokens.Delete(sessionID)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	delete(c.tokens, sessionID)
 }
 
 // extractTokenFromRequest extracts the token from request based on TokenLookup config.
 func (c *CSRFProtection) extractTokenFromRequest(r *http.Request) string {
-	parts := strings.Split(c.config.TokenLookup, ":")
-	if len(parts) != 2 {
-		return ""
-	}
-
-	extractor := parts[0]
-	key := parts[1]
-
-	switch extractor {
+	switch c.lookupSource {
 	case "header":
-		return r.Header.Get(key)
+		return r.Header.Get(c.lookupKey)
 	case "form":
-		return r.FormValue(key)
+		return r.FormValue(c.lookupKey)
 	case "query":
-		return r.URL.Query().Get(key)
+		return r.URL.Query().Get(c.lookupKey)
 	default:
 		return ""
 	}
+}
+
+// binding returns the value a token is tied to for this request: the session
+// ID when BindToSession is on and SessionMiddleware found a session, else "".
+func (c *CSRFProtection) binding(ctx forge.Context) string {
+	if !c.config.BindToSession {
+		return ""
+	}
+
+	if session, ok := GetSessionFromForgeContext(ctx); ok && session != nil {
+		return session.ID
+	}
+
+	return ""
 }
 
 // isSafeMethod checks if the HTTP method is safe (doesn't require CSRF protection).
@@ -224,13 +387,7 @@ func (c *CSRFProtection) isSafeMethod(method string) bool {
 
 // shouldSkipPath checks if the path should skip CSRF protection.
 func (c *CSRFProtection) shouldSkipPath(path string) bool {
-	for _, skipPath := range c.config.SkipPaths {
-		if path == skipPath || strings.HasPrefix(path, skipPath) {
-			return true
-		}
-	}
-
-	return false
+	return shouldSkipPath(path, c.config.SkipPaths)
 }
 
 // CSRFMiddleware returns a middleware function for CSRF protection.
@@ -264,45 +421,33 @@ func CSRFMiddleware(csrf *CSRFProtection, cookieManager *CookieManager) forge.Mi
 func (c *CSRFProtection) handleSafeMethod(ctx forge.Context, cookieManager *CookieManager, next forge.Handler) error {
 	r := ctx.Request()
 	w := ctx.Response()
+	binding := c.binding(ctx)
 
-	// Get or create session ID
-	sessionID, _ := cookieManager.GetCookie(r, c.config.CookieName)
+	// Keep the client's token only if this server signed it for this binding
+	// and it has not expired. Anything else, including an arbitrary value an
+	// attacker planted, is replaced and never stored.
+	token, _ := cookieManager.GetCookie(r, c.config.CookieName)
+	if token == "" || c.VerifyToken(token, binding) != nil {
+		var err error
 
-	// Check if we already have a valid token
-	if sessionID != "" {
-		if _, ok := c.GetToken(sessionID); ok {
-			// Token exists and is valid
-			return next(ctx)
+		token, err = c.IssueToken(binding)
+		if err != nil {
+			c.logger.Error("failed to generate csrf token", forge.F("error", err))
+
+			return ctx.String(http.StatusInternalServerError, "Internal Server Error")
 		}
+
+		cookieManager.SetCookie(w, c.config.CookieName, token, &CookieOptions{
+			Path:     c.config.CookiePath,
+			Domain:   c.config.CookieDomain,
+			Secure:   c.config.CookieSecure,
+			HttpOnly: c.config.CookieHTTPOnly,
+			SameSite: SameSiteMode(c.config.CookieSameSite),
+			MaxAge:   int(c.config.TTL.Seconds()),
+		})
 	}
 
-	// Generate new token
-	token, err := c.GenerateToken()
-	if err != nil {
-		c.logger.Error("failed to generate csrf token", forge.F("error", err))
-
-		return ctx.String(http.StatusInternalServerError, "Internal Server Error")
-	}
-
-	// Generate new session ID if needed
-	if sessionID == "" {
-		sessionID = token // Use the token as session ID for simplicity
-	}
-
-	// Store token
-	c.SetToken(sessionID, token)
-
-	// Set cookie
-	cookieManager.SetCookie(w, c.config.CookieName, sessionID, &CookieOptions{
-		Path:     c.config.CookiePath,
-		Domain:   c.config.CookieDomain,
-		Secure:   c.config.CookieSecure,
-		HttpOnly: c.config.CookieHTTPOnly,
-		SameSite: SameSiteMode(c.config.CookieSameSite),
-		MaxAge:   int(c.config.TTL.Seconds()),
-	})
-
-	// Set token in response header so client can read it
+	// Expose the token so a client or template can send it back.
 	w.Header().Set("X-Csrf-Token", token)
 
 	return next(ctx)
@@ -312,10 +457,9 @@ func (c *CSRFProtection) handleSafeMethod(ctx forge.Context, cookieManager *Cook
 func (c *CSRFProtection) handleUnsafeMethod(ctx forge.Context, cookieManager *CookieManager, next forge.Handler) error {
 	r := ctx.Request()
 
-	// Get session ID from cookie
-	sessionID, _ := cookieManager.GetCookie(r, c.config.CookieName)
-	if sessionID == "" {
-		c.logger.Warn("csrf validation failed: no session cookie")
+	cookieToken, _ := cookieManager.GetCookie(r, c.config.CookieName)
+	if cookieToken == "" {
+		c.logger.Warn("csrf validation failed: no csrf cookie")
 
 		return ctx.String(http.StatusForbidden, "CSRF token validation failed")
 	}
@@ -331,8 +475,14 @@ func (c *CSRFProtection) handleUnsafeMethod(ctx forge.Context, cookieManager *Co
 		return ctx.String(http.StatusForbidden, "CSRF token validation failed")
 	}
 
-	// Validate token
-	if err := c.ValidateToken(sessionID, token); err != nil {
+	// The cookie must be a token this server signed, and the request must
+	// echo exactly that token.
+	err := c.VerifyToken(cookieToken, c.binding(ctx))
+	if err == nil && subtle.ConstantTimeCompare([]byte(cookieToken), []byte(token)) != 1 {
+		err = ErrCSRFTokenInvalid
+	}
+
+	if err != nil {
 		c.logger.Warn("csrf validation failed",
 			forge.F("error", err),
 			forge.F("method", r.Method),

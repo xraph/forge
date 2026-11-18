@@ -1,5 +1,6 @@
 import { DestroyRef, computed, effect, inject, runInInjectionContext, signal, untracked } from '@angular/core';
 import type { Injector, Signal } from '@angular/core';
+import { poll } from '@forge-go/client-core';
 import type {
   QueryBinding,
   QueryCache,
@@ -61,6 +62,22 @@ export interface InjectQueryOptions {
    * that computes the value keeps whichever one it first rendered with.
    */
   readonly staleTime?: number | (() => number | undefined);
+  /**
+   * Refetch this query every so many milliseconds until it is destroyed.
+   * `false`, `0` or absent polls nothing, so
+   * `refetchInterval: () => (executing() ? 3000 : false)` reads the way it does
+   * in TanStack Query. A value, or a function such as a signal, re-read when it
+   * changes.
+   *
+   * The cadence holds: each request starts one interval after the previous one
+   * started, and a response slower than the interval is followed by the next
+   * request rather than overlapped by it. Changing the value, or the query's
+   * arguments, restarts the timer; a new response does not. Paused while the
+   * tab is hidden unless `refetchIntervalInBackground` is set.
+   */
+  readonly refetchInterval?: number | false | (() => number | false | undefined);
+  /** Keep polling while the tab is hidden. Defaults to false. */
+  readonly refetchIntervalInBackground?: boolean | (() => boolean | undefined);
 }
 
 /** What `injectQuery` returns: the query's state as signals, plus the controls. */
@@ -223,6 +240,38 @@ function bind<T>(
 
   attachLive();
 
+  // Polling. Restarted by a change of query, interval or background flag, and
+  // by nothing else: a timer that restarts on every response drifts by the
+  // response time (xraph/forge#100).
+  const intervalOf = (): number | false | undefined => {
+    const declared = options?.refetchInterval;
+
+    return typeof declared === 'function' ? declared() : declared;
+  };
+
+  const inBackgroundOf = (): boolean => {
+    const declared = options?.refetchIntervalInBackground;
+
+    return (typeof declared === 'function' ? declared() : declared) === true;
+  };
+
+  let pollRelease: (() => void) | undefined;
+
+  function attachPoll(): void {
+    const interval = intervalOf();
+
+    if (typeof interval === 'number') {
+      pollRelease = poll(client, op.meta, resolve(args), interval, { whileHidden: inBackgroundOf() });
+    }
+  }
+
+  function detachPoll(): void {
+    pollRelease?.();
+    pollRelease = undefined;
+  }
+
+  attachPoll();
+
   let stopWatching: (() => void) | undefined;
 
   // Reactive arguments, a reactive staleTime, or both. Either one changing has
@@ -285,10 +334,40 @@ function bind<T>(
         // channel both keys share is never actually closed.
         detachLive();
         attachLive();
+
+        detachPoll();
+        attachPoll();
       });
     });
 
     stopWatching = () => watcher.destroy();
+  }
+
+  let stopPollWatch: (() => void) | undefined;
+
+  if (
+    typeof options?.refetchInterval === 'function' ||
+    typeof options?.refetchIntervalInBackground === 'function'
+  ) {
+    let interval = intervalOf();
+    let inBackground = inBackgroundOf();
+
+    const watcher = effect(() => {
+      const nextInterval = intervalOf();
+      const nextInBackground = inBackgroundOf();
+
+      if (nextInterval === interval && nextInBackground === inBackground) return;
+
+      interval = nextInterval;
+      inBackground = nextInBackground;
+
+      untracked(() => {
+        detachPoll();
+        attachPoll();
+      });
+    });
+
+    stopPollWatch = () => watcher.destroy();
   }
 
   let stopLive: (() => void) | undefined;
@@ -348,8 +427,11 @@ function bind<T>(
     stopWatching = undefined;
     stopLive?.();
     stopLive = undefined;
+    stopPollWatch?.();
+    stopPollWatch = undefined;
     detach();
     detachLive();
+    detachPoll();
   }
 
   /**

@@ -264,7 +264,40 @@ func (ph *PasswordHasher) decodeArgon2IDHash(encodedHash string) (*argon2Params,
 
 	params.KeyLength = uint32(len(hash)) //nolint:gosec // G115: bounded by the MaxUint32 check above; gosec can't see through the uint64 widening
 
+	if err := validateArgon2Params(params); err != nil {
+		return nil, nil, nil, err
+	}
+
 	return params, salt, hash, nil
+}
+
+// Bounds for parameters read from a stored hash. argon2.IDKey panics on zero
+// iterations or parallelism, an empty digest would compare equal to an empty
+// derived key and accept any password, and an absurd memory cost would make
+// the runtime abort with an out-of-memory error that cannot be recovered.
+// The salt and tag minimums are the ones RFC 9106 sets.
+const (
+	minArgon2SaltLength = 8
+	minArgon2KeyLength  = 4
+	maxArgon2KeyLength  = 1024
+	maxArgon2Memory     = 4 * 1024 * 1024 // KiB, 4 GiB
+)
+
+// validateArgon2Params rejects parameters that would panic, accept every
+// password, or exhaust memory.
+func validateArgon2Params(p *argon2Params) error {
+	switch {
+	case p.Iterations < 1,
+		p.Parallelism < 1,
+		p.Memory < 8*uint32(p.Parallelism),
+		p.Memory > maxArgon2Memory,
+		p.SaltLength < minArgon2SaltLength,
+		p.KeyLength < minArgon2KeyLength,
+		p.KeyLength > maxArgon2KeyLength:
+		return ErrInvalidHash
+	}
+
+	return nil
 }
 
 // verifyArgon2ID verifies a password against an Argon2id hash.

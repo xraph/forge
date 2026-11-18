@@ -77,8 +77,8 @@ func TestRateLimitKeyIgnoresEphemeralPort(t *testing.T) {
 		t.Errorf("rate limit bypassed: %d/100 requests allowed from one IP, burst is 3", allowed)
 	}
 
-	if len(limiter.buckets) != 1 {
-		t.Errorf("bucket per connection: %d buckets tracked for a single IP", len(limiter.buckets))
+	if limiter.bucketCount() != 1 {
+		t.Errorf("bucket per connection: %d buckets tracked for a single IP", limiter.bucketCount())
 	}
 }
 
@@ -93,8 +93,8 @@ func TestRateLimiterBoundsTrackedKeys(t *testing.T) {
 		limiter.Allow(fmt.Sprintf("10.0.0.%d", i))
 	}
 
-	if len(limiter.buckets) > 10 {
-		t.Errorf("tracked %d keys, cap is 10", len(limiter.buckets))
+	if limiter.bucketCount() > 10 {
+		t.Errorf("tracked %d keys, cap is 10", limiter.bucketCount())
 	}
 }
 

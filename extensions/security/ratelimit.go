@@ -3,6 +3,8 @@ package security
 import (
 	"net"
 	"net/http"
+	"net/netip"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -22,8 +24,18 @@ type RateLimitConfig struct {
 	// Window is the time window for rate limiting
 	Window time.Duration `yaml:"window"`
 
-	// Note: Rate limit key extraction is handled internally using IP address
-	// For custom key extraction, wrap the middleware with your own logic
+	// Requests are keyed by client IP. By default that is the TCP peer
+	// address (RemoteAddr). X-Forwarded-For and X-Real-IP are client
+	// controlled, so they are only read when the peer is one of
+	// TrustedProxies. For custom key extraction, wrap the middleware with
+	// your own logic.
+
+	// TrustedProxies lists the reverse proxies, as IPs or CIDR ranges, whose
+	// forwarding headers are believed. When the peer is in this list the
+	// client IP is the right-most X-Forwarded-For entry that is not itself a
+	// trusted proxy, falling back to X-Real-IP. Leave it empty when the app
+	// is reached directly. Invalid entries are ignored and logged.
+	TrustedProxies []string `yaml:"trusted_proxies"`
 
 	// SkipPaths is a list of paths to skip rate limiting
 	SkipPaths []string `yaml:"skip_paths"`
@@ -118,10 +130,13 @@ func (tb *tokenBucket) take(n int) (bool, *RateLimitInfo) {
 
 // MemoryRateLimiter implements in-memory rate limiting.
 type MemoryRateLimiter struct {
-	config  RateLimitConfig
-	buckets sync.Map // map[string]*tokenBucket
-	logger  forge.Logger
-	metrics forge.Metrics
+	config         RateLimitConfig
+	buckets        sync.Map // map[string]*tokenBucket
+	logger         forge.Logger
+	metrics        forge.Metrics
+	trustedProxies []netip.Prefix
+	stopCh         chan struct{}
+	stopOnce       sync.Once
 }
 
 // NewMemoryRateLimiter creates a new in-memory rate limiter.
@@ -135,15 +150,24 @@ func NewMemoryRateLimiter(config RateLimitConfig, logger forge.Logger, metrics f
 	}
 
 	limiter := &MemoryRateLimiter{
-		config:  config,
-		logger:  logger,
-		metrics: metrics,
+		config:         config,
+		logger:         logger,
+		metrics:        metrics,
+		trustedProxies: parseTrustedProxies(config.TrustedProxies, logger),
+		stopCh:         make(chan struct{}),
 	}
 
-	// Start cleanup goroutine
+	// Start cleanup goroutine; Stop ends it.
 	go limiter.cleanup()
 
 	return limiter
+}
+
+// Stop ends the background cleanup goroutine. It is safe to call more than
+// once. The limiter keeps working after Stop, it just no longer evicts idle
+// buckets.
+func (rl *MemoryRateLimiter) Stop() {
+	rl.stopOnce.Do(func() { close(rl.stopCh) })
 }
 
 // cleanup periodically removes expired buckets.
@@ -151,7 +175,13 @@ func (rl *MemoryRateLimiter) cleanup() {
 	ticker := time.NewTicker(rl.config.Window * 2)
 	defer ticker.Stop()
 
-	for range ticker.C {
+	for {
+		select {
+		case <-rl.stopCh:
+			return
+		case <-ticker.C:
+		}
+
 		now := time.Now()
 
 		rl.buckets.Range(func(key, value any) bool {
@@ -171,8 +201,13 @@ func (rl *MemoryRateLimiter) cleanup() {
 
 // Allow checks if a request is allowed based on rate limit.
 func (rl *MemoryRateLimiter) Allow(key string) (bool, *RateLimitInfo) {
-	// Get or create bucket for this key
-	val, _ := rl.buckets.LoadOrStore(key, newTokenBucket(rl.config.RequestsPerWindow, rl.config.Window))
+	// Load first: the bucket almost always exists, and building one just to
+	// throw it away cost three allocations per request.
+	val, ok := rl.buckets.Load(key)
+	if !ok {
+		val, _ = rl.buckets.LoadOrStore(key, newTokenBucket(rl.config.RequestsPerWindow, rl.config.Window))
+	}
+
 	bucket := val.(*tokenBucket)
 
 	// Try to take a token
@@ -190,13 +225,7 @@ func (rl *MemoryRateLimiter) Allow(key string) (bool, *RateLimitInfo) {
 
 // shouldSkipPath checks if the path should skip rate limiting.
 func (rl *MemoryRateLimiter) shouldSkipPath(path string) bool {
-	for _, skipPath := range rl.config.SkipPaths {
-		if path == skipPath || strings.HasPrefix(path, skipPath) {
-			return true
-		}
-	}
-
-	return false
+	return shouldSkipPath(path, rl.config.SkipPaths)
 }
 
 // RateLimitMiddleware returns a middleware function for rate limiting.
@@ -246,28 +275,107 @@ func RateLimitMiddleware(limiter *MemoryRateLimiter) forge.Middleware {
 	}
 }
 
-// extractRateLimitKey extracts the rate limit key from request.
+// extractRateLimitKey returns the client IP to rate limit on.
+//
+// The TCP peer is the only address the client cannot forge, so it is the key
+// unless the peer is a configured trusted proxy. Then X-Forwarded-For is read
+// from the right, skipping trusted proxies, and the first other address is
+// the client. Entries further left were written by the client and are never
+// used. Taking the left-most entry, as this used to, let any client pick its
+// own bucket on every request, or exhaust someone else's.
 func (rl *MemoryRateLimiter) extractRateLimitKey(r *http.Request) string {
-	// Try to get real IP from headers (for proxied requests)
-	if ip := r.Header.Get("X-Real-IP"); ip != "" {
-		return ip
-	}
-
-	if ip := r.Header.Get("X-Forwarded-For"); ip != "" {
-		// X-Forwarded-For can contain multiple IPs, take the first one
-		ips := strings.Split(ip, ",")
-		if len(ips) > 0 {
-			return strings.TrimSpace(ips[0])
-		}
-	}
-
-	// Fall back to RemoteAddr
-	ip, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
+	peer, ok := parseIPHost(r.RemoteAddr)
+	if !ok {
 		return r.RemoteAddr
 	}
 
-	return ip
+	if !rl.isTrustedProxy(peer) {
+		return peer.String()
+	}
+
+	if xff := r.Header.Values("X-Forwarded-For"); len(xff) > 0 {
+		hops := strings.Split(strings.Join(xff, ","), ",")
+		for _, hop := range slices.Backward(hops) {
+			hop, ok := parseIP(hop)
+			if !ok {
+				// A malformed entry appended by a trusted proxy. Do not
+				// guess past it; limit on the proxy instead.
+				return peer.String()
+			}
+
+			if !rl.isTrustedProxy(hop) {
+				return hop.String()
+			}
+		}
+	}
+
+	if ip, ok := parseIP(r.Header.Get("X-Real-IP")); ok {
+		return ip.String()
+	}
+
+	return peer.String()
+}
+
+// isTrustedProxy reports whether ip is one of the configured proxies.
+func (rl *MemoryRateLimiter) isTrustedProxy(ip netip.Addr) bool {
+	for _, p := range rl.trustedProxies {
+		if p.Contains(ip) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// parseTrustedProxies turns IPs and CIDR ranges into prefixes. A bare IP
+// becomes a single-address prefix.
+func parseTrustedProxies(entries []string, logger forge.Logger) []netip.Prefix {
+	prefixes := make([]netip.Prefix, 0, len(entries))
+
+	for _, e := range entries {
+		e = strings.TrimSpace(e)
+		if e == "" {
+			continue
+		}
+
+		if p, err := netip.ParsePrefix(e); err == nil {
+			prefixes = append(prefixes, p.Masked())
+
+			continue
+		}
+
+		if ip, ok := parseIP(e); ok {
+			prefixes = append(prefixes, netip.PrefixFrom(ip, ip.BitLen()))
+
+			continue
+		}
+
+		if logger != nil {
+			logger.Warn("ignoring invalid trusted proxy entry", forge.F("entry", e))
+		}
+	}
+
+	return prefixes
+}
+
+// parseIP parses an IP address, trimming spaces and folding IPv4-mapped IPv6
+// addresses to IPv4 so one client has one key.
+func parseIP(s string) (netip.Addr, bool) {
+	ip, err := netip.ParseAddr(strings.TrimSpace(s))
+	if err != nil {
+		return netip.Addr{}, false
+	}
+
+	return ip.Unmap().WithZone(""), true
+}
+
+// parseIPHost parses the host part of a "host:port" address, or a bare IP.
+func parseIPHost(addr string) (netip.Addr, bool) {
+	if host, _, err := net.SplitHostPort(addr); err == nil {
+		return parseIP(host)
+	}
+
+	return parseIP(addr)
 }
 
 // WithRateLimitPerIP creates a rate limiter that limits by IP address.
@@ -287,5 +395,13 @@ func WithRateLimitPerUser(requests int, window time.Duration) ConfigOption {
 		c.RateLimit.RequestsPerWindow = requests
 		c.RateLimit.Window = window
 		// KeyFunc removed - use custom middleware wrapper for user-based rate limiting
+	}
+}
+
+// WithRateLimitTrustedProxies sets the reverse proxies whose X-Forwarded-For
+// and X-Real-IP headers the rate limiter believes.
+func WithRateLimitTrustedProxies(proxies ...string) ConfigOption {
+	return func(c *Config) {
+		c.RateLimit.TrustedProxies = proxies
 	}
 }

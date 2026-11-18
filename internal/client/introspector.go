@@ -755,6 +755,7 @@ func (i *Introspector) operationToEndpoint(spec *APISpec, method, path string, o
 	resolveEndpointCacheMeta(spec, &endpoint, op.Extensions)
 	endpoint.Authorization = resolveEndpointAuthz(op.Extensions)
 	resolveEndpointIdempotent(spec, &endpoint, op.Extensions)
+	resolveEndpointStream(spec, &endpoint, op.Extensions)
 	collectSyncRoute(spec, endpointOrigin(&endpoint), endpoint.Path, "", op.Extensions)
 
 	return endpoint
@@ -923,6 +924,13 @@ func (i *Introspector) routeToEndpoint(route router.RouteInfo) Endpoint {
 
 	// Copy metadata
 	maps.Copy(endpoint.Metadata, route.Metadata)
+
+	// The route table knows outright what a document has to infer. A route
+	// registered through SSE, EventStream, WebSocket or WebTransport is a
+	// stream, whatever its method says.
+	if route.Kind.LongLived() {
+		endpoint.Stream = route.Kind.String()
+	}
 
 	return endpoint
 }

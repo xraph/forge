@@ -95,52 +95,59 @@ func TestResponseWriter_Push_NotSupported(t *testing.T) {
 	assert.Equal(t, http.ErrNotSupported, err)
 }
 
+func newTestGzipWriter(rec http.ResponseWriter, minSize int) *gzipResponseWriter {
+	return &gzipResponseWriter{
+		ResponseWriter: rec,
+		pool:           gzipPool(gzip.DefaultCompression),
+		minSize:        minSize,
+		code:           http.StatusOK,
+	}
+}
+
 func TestGzipResponseWriter_Write(t *testing.T) {
 	rec := httptest.NewRecorder()
-
-	gz := gzip.NewWriter(rec)
-	defer gz.Close()
-
-	gzw := &gzipResponseWriter{
-		Writer:         gz,
-		ResponseWriter: rec,
-	}
+	gzw := newTestGzipWriter(rec, -1)
 
 	n, err := gzw.Write([]byte("test"))
 	assert.NoError(t, err)
 	assert.Equal(t, 4, n)
+
+	gzw.close()
+
+	assert.Equal(t, "gzip", rec.Header().Get("Content-Encoding"))
+	assert.Equal(t, "test", gunzip(t, rec.Body.Bytes()))
 }
 
 func TestGzipResponseWriter_WriteHeader(t *testing.T) {
 	rec := httptest.NewRecorder()
-	rec.Header().Set("Content-Length", "123")
+	rec.Header().Set("Content-Length", "5000")
 
-	gz := gzip.NewWriter(rec)
-	gzw := &gzipResponseWriter{
-		Writer:         gz,
-		ResponseWriter: rec,
-	}
-
+	gzw := newTestGzipWriter(rec, DefaultCompressMinSize)
 	gzw.WriteHeader(http.StatusOK)
 
-	// Content-Length should be removed
+	// The declared length is over the threshold, so the response is
+	// compressed and the uncompressed Content-Length must go.
 	assert.Empty(t, rec.Header().Get("Content-Length"))
+	assert.Equal(t, "gzip", rec.Header().Get("Content-Encoding"))
 	assert.Equal(t, http.StatusOK, rec.Code)
+
+	gzw.close()
 }
 
 func TestGzipResponseWriter_Flush(t *testing.T) {
 	rec := httptest.NewRecorder()
+	gzw := newTestGzipWriter(rec, DefaultCompressMinSize)
 
-	gz := gzip.NewWriter(rec)
-	defer gz.Close()
-
-	gzw := &gzipResponseWriter{
-		Writer:         gz,
-		ResponseWriter: rec,
-	}
-
-	// Should not panic
+	_, _ = gzw.Write([]byte("data: hello\n\n"))
 	gzw.Flush()
+
+	// A flushing handler is streaming, so the held body is committed to gzip
+	// and pushed out.
+	assert.True(t, rec.Flushed)
+	assert.Equal(t, "gzip", rec.Header().Get("Content-Encoding"))
+
+	gzw.close()
+	assert.Equal(t, "data: hello\n\n", gunzip(t, rec.Body.Bytes()))
 }
 
 // Hijackable recorder for testing.

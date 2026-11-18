@@ -37,6 +37,9 @@ func main() {
 		hls.WithFFmpegPaths("ffmpeg", "ffprobe"),
 		hls.WithCORS(true, "*"),
 		hls.WithCleanup(24*time.Hour, 1*time.Hour),
+		// Mount the /streams management routes. They are open here, which
+		// is only fine for a local demo; use WithAuth(true) behind real auth.
+		hls.WithManagementAPI(true),
 	)
 
 	// Register extensions

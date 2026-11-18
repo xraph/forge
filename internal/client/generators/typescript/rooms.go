@@ -297,7 +297,7 @@ func (r *RoomsGenerator) generateRoomClient(spec *client.APISpec, config client.
 		wsPath = spec.Streaming.Rooms.Path
 	}
 
-	fmt.Fprintf(&buf, "      let wsURL = this.config.baseURL.replace(/^http/, 'ws') + '%s';\n\n", wsPath)
+	fmt.Fprintf(&buf, "      let wsURL = this.config.baseURL.replace(/^http/, 'ws') + %s;\n\n", jsonString(wsPath))
 
 	// Add auth to URL
 	if config.IncludeAuth {

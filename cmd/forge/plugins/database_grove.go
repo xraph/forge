@@ -59,7 +59,7 @@ func groveDriverSchemes() []string {
 func resolveGroveDriver(dsn string) (groveDriver, error) {
 	scheme, _, found := strings.Cut(dsn, "://")
 	if !found || scheme == "" {
-		return groveDriver{}, fmt.Errorf("cannot determine database type from %q: a DSN must start with a scheme, for example postgres://", dsn)
+		return groveDriver{}, fmt.Errorf("cannot determine database type from %q: a DSN must start with a scheme, for example postgres://", redactDSN(dsn))
 	}
 
 	scheme = strings.ToLower(scheme)

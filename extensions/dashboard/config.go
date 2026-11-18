@@ -57,17 +57,29 @@ type Config struct {
 	// ContractMaxBodyBytes caps the contract envelope a client may POST.
 	// Zero or less means transport.DefaultMaxBodyBytes (1 MiB).
 	ContractMaxBodyBytes int64 `json:"contract_max_body_bytes" yaml:"contract_max_body_bytes"`
+	// TrustedOrigins lists browser origins (scheme://host[:port]) allowed to
+	// send contract commands cross-site. Commands a browser marks as
+	// cross-site are refused otherwise. Set it only when the dashboard client
+	// is served from a different site than this API.
+	TrustedOrigins []string `json:"trusted_origins" yaml:"trusted_origins"`
 
-	// Authentication
+	// Authentication. With EnableAuth on, every dashboard route (contract
+	// queries and commands, streams, capabilities, the CSRF token endpoint
+	// and exports) refuses a caller nobody signed in as with 401, and one
+	// without a RequiredRoles match with 403. The principal endpoint keeps
+	// answering so a client can learn where to send the user. With it off,
+	// all of those routes are open and the dashboard logs a warning at
+	// startup saying so.
 	EnableAuth bool `json:"enable_auth" yaml:"enable_auth"`
 	// LoginPath is where a signed-out user is sent, relative to BasePath. The
 	// dashboard serves no login page itself: the principal endpoint reports
 	// this path in its 401 so the client knows where to redirect.
 	LoginPath string `json:"login_path" yaml:"login_path"`
 	// RequiredRoles, when non-empty, restricts dashboard access to users
-	// carrying at least one matching role. The principal endpoint returns
-	// 403 PERMISSION_DENIED for users who don't qualify. Rendering that as
-	// an "access denied" screen is the client's job.
+	// carrying at least one matching role. Every dashboard route, the
+	// principal endpoint included, returns 403 PERMISSION_DENIED for users
+	// who don't qualify. Rendering that as an "access denied" screen is the
+	// client's job. It has no effect while EnableAuth is off.
 	RequiredRoles []string `json:"required_roles" yaml:"required_roles"`
 
 	// Discovery. With EnableDiscovery on and a discovery service set through
@@ -76,6 +88,26 @@ type Config struct {
 	EnableDiscovery       bool          `json:"enable_discovery"        yaml:"enable_discovery"`
 	DiscoveryTag          string        `json:"discovery_tag"           yaml:"discovery_tag"`
 	DiscoveryPollInterval time.Duration `json:"discovery_poll_interval" yaml:"discovery_poll_interval"`
+
+	// Remote contributors, registered through RegisterRemoteContractContributor
+	// or discovery. AllowInsecureRemotes permits plain http to a contributor
+	// that is not on a loopback address; without it such a contributor is
+	// refused, before anything is sent to it, because envelopes, the API key
+	// and the user's identity would cross the network in clear text.
+	// A discovered instance is reached over https when it advertises it
+	// (discovery.SchemeMetadata set to "https", or an "https" tag), and only
+	// needs this when it does not. Even with it on, API keys are never sent
+	// over plain http to another host.
+	AllowInsecureRemotes bool `json:"allow_insecure_remotes" yaml:"allow_insecure_remotes"`
+	// RemoteForwardHeaders names inbound headers passed to remote
+	// contributors as X-Forwarded-<Name>. Empty by default, so the user's
+	// Cookie and Authorization stay with the host; only the authenticated
+	// subject is sent, as X-Forwarded-User.
+	RemoteForwardHeaders []string `json:"remote_forward_headers" yaml:"remote_forward_headers"`
+	// RemotePropagateSetCookie re-emits a remote contributor's Set-Cookie on
+	// the dashboard's origin. Off by default; turn it on when a trusted
+	// remote serves the login flow.
+	RemotePropagateSetCookie bool `json:"remote_propagate_set_cookie" yaml:"remote_propagate_set_cookie"`
 
 	// Export
 	EnableExport  bool     `json:"enable_export"  yaml:"enable_export"`
@@ -165,6 +197,25 @@ func WithDiscoveryPollInterval(interval time.Duration) ConfigOption {
 	return func(c *Config) { c.DiscoveryPollInterval = interval }
 }
 
+// WithAllowInsecureRemotes permits plain http to remote contributors that
+// are not on a loopback address.
+func WithAllowInsecureRemotes(allow bool) ConfigOption {
+	return func(c *Config) { c.AllowInsecureRemotes = allow }
+}
+
+// WithRemoteForwardHeaders names inbound headers passed to remote
+// contributors as X-Forwarded-<Name>, for example "Cookie" for an upstream
+// that shares the host's session store.
+func WithRemoteForwardHeaders(headers ...string) ConfigOption {
+	return func(c *Config) { c.RemoteForwardHeaders = append([]string(nil), headers...) }
+}
+
+// WithRemotePropagateSetCookie re-emits remote contributors' Set-Cookie
+// headers on the dashboard's origin.
+func WithRemotePropagateSetCookie(enabled bool) ConfigOption {
+	return func(c *Config) { c.RemotePropagateSetCookie = enabled }
+}
+
 // WithRefreshInterval sets the data collection refresh interval.
 func WithRefreshInterval(interval time.Duration) ConfigOption {
 	return func(c *Config) { c.RefreshInterval = interval }
@@ -227,6 +278,12 @@ func WithContractSecurity(enabled bool) ConfigOption {
 // keeps the 1 MiB default.
 func WithContractMaxBodyBytes(n int64) ConfigOption {
 	return func(c *Config) { c.ContractMaxBodyBytes = n }
+}
+
+// WithTrustedOrigins sets the browser origins allowed to send contract
+// commands cross-site, for a dashboard client served from another site.
+func WithTrustedOrigins(origins ...string) ConfigOption {
+	return func(c *Config) { c.TrustedOrigins = append([]string(nil), origins...) }
 }
 
 // WithExportFormats sets the supported export formats.

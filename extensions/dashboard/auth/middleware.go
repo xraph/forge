@@ -9,9 +9,11 @@ import (
 // the contract routes, so the dispatcher and the principal endpoint see the
 // caller.
 //
-// It does NOT block unauthenticated requests — it only populates the context.
-// Access is enforced per intent by the contract's Requires predicate, and the
-// principal endpoint reports 401 when auth is on and nobody is signed in.
+// It does NOT block unauthenticated requests; it only populates the context.
+// The dashboard extension uses it on the principal endpoint alone. Every other
+// dashboard route runs a blocking gate when auth is on, because an intent that
+// declares no Requires predicate allows everyone and so cannot be relied on to
+// keep anonymous callers out.
 func ForgeMiddleware(checker AuthChecker) forge.Middleware {
 	return func(next forge.Handler) forge.Handler {
 		return func(ctx forge.Context) error {

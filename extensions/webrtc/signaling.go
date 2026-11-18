@@ -3,6 +3,7 @@ package webrtc
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -41,81 +42,49 @@ const (
 
 // SendOffer sends an SDP offer to a peer via streaming.
 func (s *signalingManager) SendOffer(ctx context.Context, roomID, peerID string, offer *SessionDescription) error {
-	msg := &streaming.Message{
-		Type: MessageTypeOffer,
-		Data: offer,
-		Metadata: map[string]any{
-			"peer_id": peerID,
-		},
-	}
-
-	// TODO: Send via streaming - needs actual manager method
-	if err := s.streaming.BroadcastToRoom(ctx, roomID, msg); err != nil {
-		return &SignalingError{
-			Op:     "send_offer",
-			PeerID: peerID,
-			RoomID: roomID,
-			Err:    err,
-		}
-	}
-
-	s.logger.Debug("sent offer",
-		forge.F("room_id", roomID),
-		forge.F("peer_id", peerID),
-	)
-
-	return nil
+	return s.sendToPeer(ctx, "send_offer", MessageTypeOffer, roomID, peerID, offer)
 }
 
 // SendAnswer sends an SDP answer to a peer via streaming.
 func (s *signalingManager) SendAnswer(ctx context.Context, roomID, peerID string, answer *SessionDescription) error {
-	msg := &streaming.Message{
-		Type: MessageTypeAnswer,
-		Data: answer,
-		Metadata: map[string]any{
-			"peer_id": peerID,
-		},
-	}
-
-	// TODO: Send via streaming - needs actual manager method
-	if err := s.streaming.BroadcastToRoom(ctx, roomID, msg); err != nil {
-		return &SignalingError{
-			Op:     "send_answer",
-			PeerID: peerID,
-			RoomID: roomID,
-			Err:    err,
-		}
-	}
-
-	s.logger.Debug("sent answer",
-		forge.F("room_id", roomID),
-		forge.F("peer_id", peerID),
-	)
-
-	return nil
+	return s.sendToPeer(ctx, "send_answer", MessageTypeAnswer, roomID, peerID, answer)
 }
 
 // SendICECandidate sends an ICE candidate to a peer via streaming.
 func (s *signalingManager) SendICECandidate(ctx context.Context, roomID, peerID string, candidate *ICECandidate) error {
+	return s.sendToPeer(ctx, "send_ice_candidate", MessageTypeICECandidate, roomID, peerID, candidate)
+}
+
+// sendToPeer delivers one signaling message to the peer it is for, and only
+// that peer. peerID is the target user's ID, which is how call rooms key
+// their peers. SDP and ICE candidates carry network addresses and DTLS
+// fingerprints, so broadcasting them to the whole room would hand every
+// other member a copy of each pair's negotiation.
+func (s *signalingManager) sendToPeer(ctx context.Context, op, msgType, roomID, peerID string, data any) error {
+	if peerID == "" {
+		return &SignalingError{Op: op, RoomID: roomID, Err: errors.New("target peer is required")}
+	}
+
 	msg := &streaming.Message{
-		Type: MessageTypeICECandidate,
-		Data: candidate,
+		Type:   msgType,
+		RoomID: roomID,
+		Data:   data,
 		Metadata: map[string]any{
 			"peer_id": peerID,
 		},
 	}
 
-	// TODO: Send via streaming - needs actual manager method
-	if err := s.streaming.BroadcastToRoom(ctx, roomID, msg); err != nil {
+	if err := s.streaming.SendToUser(ctx, peerID, msg); err != nil {
 		return &SignalingError{
-			Op:     "send_ice_candidate",
+			Op:     op,
 			PeerID: peerID,
 			RoomID: roomID,
 			Err:    err,
 		}
 	}
 
-	s.logger.Debug("sent ICE candidate",
+	s.logger.Debug("sent signaling message",
+		forge.F("type", msgType),
 		forge.F("room_id", roomID),
 		forge.F("peer_id", peerID),
 	)

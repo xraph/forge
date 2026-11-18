@@ -421,6 +421,8 @@ func (g *openAPIGenerator) processRoute(spec *OpenAPISpec, route RouteInfo) erro
 		}
 	}
 
+	markStreamOperation(operation, route.Kind)
+
 	// Set operation on path item based on method
 	g.setOperation(pathItem, route.Method, operation)
 
@@ -1416,4 +1418,69 @@ func sortedUniqueStrings(v any) []string {
 	slices.Sort(out)
 
 	return out
+}
+
+// markStreamOperation says, in the document, that a route holds its connection
+// open.
+//
+// SSE, EventStream, WebSocket and WebTransport routes are registered as
+// ordinary GETs, and the AsyncAPI document is where their messages live. In
+// OpenAPI they used to come out as `GET -> 200 Success`, which no reader can
+// tell apart from a REST read: the client generator bound each one as a query,
+// and any other OpenAPI tool would have generated a plain request for it.
+//
+// x-forge-protocol carries the kind in the vocabulary the AsyncAPI channel
+// already uses for WebTransport. The responses are corrected too, for readers
+// that know nothing of x-forge-*: an SSE route answers text/event-stream, and a
+// WebSocket route whose responses are only the generated default answers 101.
+func markStreamOperation(op *Operation, kind RouteKind) {
+	if !kind.LongLived() {
+		return
+	}
+
+	if op.Extensions == nil {
+		op.Extensions = make(map[string]any)
+	}
+
+	op.Extensions["x-forge-protocol"] = kind.String()
+
+	switch kind {
+	case KindSSE:
+		resp := op.Responses["200"]
+		if resp == nil {
+			resp = &Response{Description: "Event stream"}
+			op.Responses["200"] = resp
+		}
+
+		// A schema a route declared for its 200 describes the events, not a
+		// JSON document, so it moves under the stream's media type rather than
+		// being thrown away. Content types are visited in sorted order so the
+		// choice between several is stable.
+		var schema *Schema
+
+		for _, ct := range slices.Sorted(maps.Keys(resp.Content)) {
+			if media := resp.Content[ct]; media != nil && media.Schema != nil {
+				schema = media.Schema
+
+				break
+			}
+		}
+
+		if schema == nil {
+			schema = &Schema{Type: "string"}
+		}
+
+		if resp.Description == "" || resp.Description == "Success" {
+			resp.Description = "Event stream"
+		}
+
+		resp.Content = map[string]*MediaType{"text/event-stream": {Schema: schema}}
+
+	case KindWebSocket:
+		if def, only := op.Responses["200"]; only && len(op.Responses) == 1 &&
+			def.Description == "Success" && len(def.Content) == 0 {
+			delete(op.Responses, "200")
+			op.Responses["101"] = &Response{Description: "Switching Protocols"}
+		}
+	}
 }

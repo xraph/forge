@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"time"
 
@@ -243,8 +244,25 @@ func (m *Manager) StopLiveStream(ctx context.Context, streamID string) error {
 	return nil
 }
 
+// ErrUnknownVariant is returned by IngestSegment when the segment names a
+// variant the stream does not have.
+var ErrUnknownVariant = errors.New("hls: variant does not belong to this stream")
+
+// ErrSegmentTooLarge is returned by IngestSegment when the segment's data is
+// over Config.MaxSegmentSize.
+var ErrSegmentTooLarge = errors.New("hls: segment exceeds max_segment_size")
+
 // IngestSegment ingests a new segment for a live stream.
+//
+// The segment's VariantID must be one of the stream's own variants. It is
+// joined into the storage key, so accepting any value would let a caller
+// write into another stream's keyspace with a VariantID such as
+// "../<other stream>/<variant>".
 func (m *Manager) IngestSegment(ctx context.Context, streamID string, segment *Segment) error {
+	if segment == nil {
+		return errors.New("hls: segment is required")
+	}
+
 	stream, err := m.GetStream(ctx, streamID)
 	if err != nil {
 		return err
@@ -252,6 +270,14 @@ func (m *Manager) IngestSegment(ctx context.Context, streamID string, segment *S
 
 	if stream.Status != StreamStatusActive {
 		return errors.New("stream is not active")
+	}
+
+	if !m.streamHasVariant(stream, segment.VariantID) {
+		return fmt.Errorf("%w: %q", ErrUnknownVariant, segment.VariantID)
+	}
+
+	if m.config.MaxSegmentSize > 0 && int64(len(segment.Data)) > m.config.MaxSegmentSize {
+		return fmt.Errorf("%w: %d bytes, limit %d", ErrSegmentTooLarge, len(segment.Data), m.config.MaxSegmentSize)
 	}
 
 	// Save segment to storage
@@ -310,6 +336,27 @@ func (m *Manager) IngestSegment(ctx context.Context, streamID string, segment *S
 	}
 
 	return nil
+}
+
+// streamHasVariant reports whether variantID is one of the stream's
+// variants and is safe to use as a single storage key segment. Variant IDs
+// are generated as UUIDs, so the second check only matters if one was set
+// some other way.
+func (m *Manager) streamHasVariant(stream *Stream, variantID string) bool {
+	if variantID == "" || variantID == "." || variantID == ".." || strings.ContainsAny(variantID, `/\`) {
+		return false
+	}
+
+	m.streamsMu.RLock()
+	defer m.streamsMu.RUnlock()
+
+	for _, v := range stream.Variants {
+		if v.ID == variantID {
+			return true
+		}
+	}
+
+	return false
 }
 
 // CreateVOD creates a VOD stream from a source file.

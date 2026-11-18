@@ -1040,7 +1040,8 @@ on a forty second cycle.
 
 Freshness landed on its own line. `revalidateOnFocus`, `revalidateOnReconnect`
 and `poll` filter to 378 B against 500 B, so an application that never imports
-them does not carry them. The parts that could not stay out of the shared set
+them does not carry them. Holding `poll` to its cadence, so a slow endpoint does
+not stretch the period, took that to 451 B. The parts that could not stay out of the shared set
 moved two budgets while the feature was landing: `query engine and REST
 transport` from 8.9 kB to 9.32 kB in 428da9ed, and `core, REST only` from
 9.2 kB to 9417 B in feb56ada.
