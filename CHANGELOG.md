@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.14.1](https://github.com/xraph/forge/compare/v1.14.0...v1.14.1) (2026-11-18)
+
+
+### Maintenance
+
+* **deps:** bump vessel to v1.0.8 (#132) ([07d3ea4f](https://github.com/xraph/forge/commit/07d3ea4f))
+* **changelog:** update CHANGELOG.md for v1.14.0 ([a3313214](https://github.com/xraph/forge/commit/a3313214))
+
 ## [1.14.0](https://github.com/xraph/forge/compare/v1.13.7...v1.14.0) (2026-11-18)
 
 
