@@ -14,7 +14,7 @@ require (
 	github.com/xraph/farp v1.3.1
 	github.com/xraph/farp/discovery v1.3.1
 	github.com/xraph/forge v1.12.9
-	github.com/xraph/vessel v1.0.6
+	github.com/xraph/vessel v1.0.7
 	go.etcd.io/etcd/client/v3 v3.5.17
 	k8s.io/api v0.36.3
 	k8s.io/apimachinery v0.36.3
@@ -99,7 +99,7 @@ require (
 	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/uptrace/bunrouter v1.0.23 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
-	github.com/xraph/go-utils v1.5.0 // indirect
+	github.com/xraph/go-utils v1.5.1 // indirect
 	go.etcd.io/etcd/api/v3 v3.5.17 // indirect
 	go.etcd.io/etcd/client/pkg/v3 v3.5.17 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
