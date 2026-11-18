@@ -9,7 +9,7 @@ require (
 	github.com/rabbitmq/amqp091-go v1.15.0
 	github.com/redis/go-redis/v9 v9.21.0
 	github.com/xraph/forge v1.12.9
-	github.com/xraph/vessel v1.0.7
+	github.com/xraph/vessel v1.0.8
 	go.opentelemetry.io/otel v1.45.0
 	go.opentelemetry.io/otel/sdk v1.45.0
 	go.opentelemetry.io/otel/trace v1.45.0
