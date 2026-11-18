@@ -9,7 +9,9 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/gobwas/ws"
@@ -43,17 +45,9 @@ func initDebugServer(a *app) {
 		stopCh: make(chan struct{}),
 	}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"status":"ok"}`)
-	})
-	mux.HandleFunc("/state", ds.handleState)
-	mux.HandleFunc("/ws", ds.handleWebSocket)
-
 	ds.httpSrv = &http.Server{
 		Addr:        addr,
-		Handler:     mux,
+		Handler:     ds.handler(),
 		ReadTimeout: 10 * time.Second,
 		IdleTimeout: 60 * time.Second,
 	}
@@ -121,6 +115,81 @@ func initDebugServer(a *app) {
 	)
 }
 
+// maxDebugFrame caps a WebSocket frame read from a debug client. The debug
+// protocol only sends to clients; what they send is pings and closes, so
+// anything larger is not a debug client.
+const maxDebugFrame = 64 << 10
+
+// handler returns the debug server's routes behind the local-only checks.
+func (ds *debugState) handler() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"status":"ok"}`)
+	})
+	mux.HandleFunc("/state", ds.handleState)
+	mux.HandleFunc("/ws", ds.handleWebSocket)
+
+	return localOnly(mux)
+}
+
+// localOnly rejects requests that did not come from a local tool.
+//
+// The server listens on 127.0.0.1, but a browser on the same machine can
+// still reach it: any page can open a WebSocket to localhost (browsers do
+// not apply CORS to upgrades), and DNS rebinding lets a page fetch /state
+// through a hostname that resolves to 127.0.0.1. Both carry the page's own
+// Origin or Host, so requiring a loopback Host and an empty or loopback
+// Origin keeps the snapshot (routes, config, services) away from web pages
+// while the CLI and the editor extension, which send neither a foreign
+// Host nor an Origin, keep working.
+func localOnly(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !isLoopbackHost(r.Host) {
+			http.Error(w, "forbidden host", http.StatusForbidden)
+
+			return
+		}
+
+		if origin := r.Header.Get("Origin"); origin != "" && !isLoopbackOrigin(origin) {
+			http.Error(w, "forbidden origin", http.StatusForbidden)
+
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+// isLoopbackHost reports whether a Host header names this machine:
+// localhost, 127.0.0.1 or ::1, with or without a port.
+func isLoopbackHost(host string) bool {
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+
+	host = strings.TrimSuffix(strings.TrimPrefix(host, "["), "]")
+
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+
+	ip := net.ParseIP(host)
+
+	return ip != nil && ip.IsLoopback()
+}
+
+// isLoopbackOrigin reports whether an Origin is an http or https origin on a
+// loopback host.
+func isLoopbackOrigin(origin string) bool {
+	u, err := url.Parse(origin)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
+		return false
+	}
+
+	return isLoopbackHost(u.Host)
+}
+
 func (ds *debugState) handleState(w http.ResponseWriter, r *http.Request) {
 	snap := ds.buildSnapshot(r.Context())
 	msg := DebugMessage{
@@ -158,15 +227,24 @@ func (ds *debugState) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			break
 		}
+
+		// The length is the client's to choose, up to 2^63, so it is never
+		// used to size an allocation. Payloads are discarded as they are
+		// read, and a frame over the cap ends the connection.
+		if hdr.Length > maxDebugFrame {
+			break
+		}
+
 		if hdr.Length > 0 {
-			payload := make([]byte, hdr.Length)
-			if _, err := io.ReadFull(conn, payload); err != nil {
+			if _, err := io.CopyN(io.Discard, conn, hdr.Length); err != nil {
 				break
 			}
-			if hdr.OpCode == ws.OpPing {
-				_ = ws.WriteHeader(conn, ws.Header{OpCode: ws.OpPong, Fin: true})
-			}
 		}
+
+		if hdr.OpCode == ws.OpPing {
+			_ = ws.WriteHeader(conn, ws.Header{OpCode: ws.OpPong, Fin: true})
+		}
+
 		if hdr.OpCode == ws.OpClose {
 			break
 		}

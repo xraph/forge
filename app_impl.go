@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -68,6 +69,26 @@ type app struct {
 	mu        sync.RWMutex
 	started   bool
 	starting  bool
+
+	// shuttingDown is set as soon as a shutdown begins, so readiness turns
+	// 503 and load balancers stop sending traffic while requests drain.
+	shuttingDown atomic.Bool
+
+	// devEnvironment reports whether Environment was explicitly set to a
+	// development one. It gates the defaults that trade safety for debugging
+	// convenience: internal error text in 5xx bodies and health check detail.
+	devEnvironment bool
+
+	// unhealthyLogged is the timestamp (UnixNano) of the last health report
+	// whose unhealthy status was logged. The endpoint serves a cached report
+	// on every probe, so logging per request would repeat the same line at
+	// the probe rate; logging once per report keeps it to one per check.
+	unhealthyLogged atomic.Int64
+
+	// metricsHandler serves /_/metrics through the scrape cache. Built on
+	// first use, since the collector is only final once Start has run.
+	metricsOnce    sync.Once
+	metricsHandler http.Handler
 }
 
 // newApp creates a new app instance.
@@ -80,6 +101,10 @@ func newApp(config AppConfig) *app {
 	if config.Version == "" {
 		config.Version = "1.0.0"
 	}
+
+	// Decide before the default below fills the field in: an unset
+	// environment must not count as a development one.
+	devEnvironment := environmentIsDevelopment(config)
 
 	if config.Environment == "" {
 		config.Environment = "development"
@@ -307,10 +332,12 @@ func newApp(config AppConfig) *app {
 		routerOpts = append(routerOpts, internalrouter.WithHTTPAddress(config.HTTPAddress))
 	}
 
-	// Internal error text is echoed to clients only outside production, where
-	// it aids debugging; in production a 500 carries no detail. Logs always have
-	// the full error either way.
-	shared.SetExposeInternalErrors(config.Environment != "production")
+	// Internal error text is echoed to clients only in an environment that
+	// was explicitly named as a development one, where it aids debugging.
+	// Anything else (unset, staging, prod, a typo) gets a 500 with no detail,
+	// because a driver error routinely carries hostnames, users and DSNs.
+	// Logs always have the full error either way.
+	shared.SetExposeInternalErrors(resolveExposeInternalErrors(config, devEnvironment))
 
 	// Cap request bodies. Zero leaves the router's own default in place.
 	if config.MaxRequestBodySize != 0 {
@@ -371,6 +398,12 @@ func newApp(config AppConfig) *app {
 		internalrouter.UseOuterMiddleware(router, telemetry.RouteMatchMiddleware(tracing.Settings().ExcludePaths))
 	}
 
+	// Innermost of the outer middleware, so it shares the route-match holder
+	// tracing or HTTP metrics installed: when the router classifies a route
+	// as a stream, the write deadline Run puts on the response is lifted
+	// before the stream starts. Without Run's wrapper it does nothing.
+	internalrouter.UseOuterMiddleware(router, liftWriteDeadlineOnStreams)
+
 	// Register core services with DI - Both key-based (legacy) and type-based (new pattern)
 
 	// Key-based registration (backward compatibility)
@@ -418,6 +451,7 @@ func newApp(config AppConfig) *app {
 		codeMetrics:      codeMetrics,
 		extensions:       []Extension{}, // Initialize empty, will populate below
 		startTime:        time.Now(),
+		devEnvironment:   devEnvironment,
 	}
 
 	// Register extensions from config
@@ -895,8 +929,13 @@ func (a *app) Start(ctx context.Context) (err error) {
 
 	a.registerExtensionHealthChecks()
 
-	// Note: Health manager is already started by container.Start()
-	// No need to start it again here
+	// The health manager ran its first round when it started, before the
+	// extension checks above existed, and the next scheduled round is a
+	// whole interval away. Run one now so readiness answers from a report
+	// that covers the extensions from the start.
+	if len(a.extensions) > 0 {
+		a.healthManager.Check(ctx)
+	}
 
 	a.started = true
 	a.startTime = time.Now()
@@ -961,6 +1000,14 @@ type startableService interface {
 }
 
 // Stop stops the application.
+//
+// Hooks, the health manager, the extensions and the DI container share one
+// budget: ctx's deadline or StopTimeout, whichever comes first. A step that
+// overruns it is abandoned and logged, and the steps after it still run, so
+// one stuck Stop cannot keep the process alive. The telemetry flushes at the
+// end (metrics push, spans, profiles, logs) each get a small budget of their
+// own, since the stop budget may be spent by then and they are what explains
+// the shutdown afterwards.
 func (a *app) Stop(ctx context.Context) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -969,18 +1016,25 @@ func (a *app) Stop(ctx context.Context) error {
 		return nil
 	}
 
+	a.shuttingDown.Store(true)
+
 	a.logger.Info("stopping application")
 
-	lctx, stopSpan := a.startLifecycleSpan(ctx, "forge.stop")
+	stopCtx, cancel := a.stopBudget(ctx)
+	defer cancel()
+
+	lctx, stopSpan := a.startLifecycleSpan(stopCtx, "forge.stop")
 
 	// Execute before stop hooks
-	if err := a.lifecycleManager.ExecuteHooks(ctx, PhaseBeforeStop, a); err != nil {
+	if err := runStep(stopCtx, "before stop hooks", func(ctx context.Context) error {
+		return a.lifecycleManager.ExecuteHooks(ctx, PhaseBeforeStop, a)
+	}); err != nil {
 		a.logger.Warn("before stop hooks failed", F("error", err))
 	}
 
 	// 1. Stop health manager
 	if healthMgr, ok := a.healthManager.(*healthinternal.ManagerImpl); ok {
-		if err := healthMgr.Stop(ctx); err != nil {
+		if err := runStep(stopCtx, "health manager stop", healthMgr.Stop); err != nil {
 			a.logger.Error("failed to stop health manager", F("error", err))
 		}
 	}
@@ -991,17 +1045,17 @@ func (a *app) Stop(ctx context.Context) error {
 	// 3. Push metrics one last time and stop pushing, while the collector
 	// still holds them: its Stop resets the registry. The drain and the
 	// extension stops are counted.
-	a.stopMetricsPush(ctx)
+	a.flush(ctx, a.stopMetricsPush)
 
 	// 4. Stop DI container (stops all services in reverse order)
-	if err := a.container.Stop(ctx); err != nil {
+	if err := runStep(stopCtx, "container stop", a.container.Stop); err != nil {
 		a.logger.Error("failed to stop container", F("error", err))
 	}
 
 	// The container stops the metrics collector only when it started it, so
 	// stop whatever Start started here.
 	if svc, ok := a.metrics.(startableService); ok && svc.IsStarted() {
-		if err := svc.Stop(ctx); err != nil {
+		if err := runStep(stopCtx, "metrics collector stop", svc.Stop); err != nil {
 			a.logger.Error("failed to stop metrics collector", F("error", err))
 		}
 	}
@@ -1011,27 +1065,41 @@ func (a *app) Stop(ctx context.Context) error {
 
 	// 5. Flush spans last, so the drain and the extension stops are exported.
 	if a.tracing != nil {
-		if err := a.tracing.Shutdown(ctx); err != nil {
-			a.logger.Warn("tracing shutdown did not finish", F("error", err))
-		}
+		a.flush(ctx, func(ctx context.Context) {
+			if err := runStep(ctx, "tracing shutdown", a.tracing.Shutdown); err != nil {
+				a.logger.Warn("tracing shutdown did not finish", F("error", err))
+			}
+		})
 	}
 
 	// 6. Stop profiling last, so shutdown shows up in the final profiles.
-	a.stopProfiler(ctx)
+	a.flush(ctx, a.stopProfiler)
 
 	a.started = false
 
 	// Execute after stop hooks
-	if err := a.lifecycleManager.ExecuteHooks(ctx, PhaseAfterStop, a); err != nil {
+	if err := runStep(stopCtx, "after stop hooks", func(ctx context.Context) error {
+		return a.lifecycleManager.ExecuteHooks(ctx, PhaseAfterStop, a)
+	}); err != nil {
 		a.logger.Warn("after stop hooks failed", F("error", err))
 	}
 
 	a.logger.Info("application stopped")
 
 	// 7. Flush logs and detach last, so every line above is exported.
-	a.stopLogsExport(ctx)
+	a.flush(ctx, a.stopLogsExport)
 
 	return nil
+}
+
+// flush runs one telemetry flush with a fresh telemetryFlushTimeout budget.
+// The flushes themselves stop at their context's deadline, so they need no
+// goroutine of their own.
+func (a *app) flush(ctx context.Context, fn func(context.Context)) {
+	fctx, cancel := flushContext(ctx)
+	defer cancel()
+
+	fn(fctx)
 }
 
 // Run starts the HTTP server and blocks until a shutdown signal is received.
@@ -1046,31 +1114,36 @@ func (a *app) Run() error {
 	}
 
 	// Create HTTP server.
-	// WriteTimeout is set to 0 (disabled) because SSE, WebSocket, and gRPC
-	// streaming handlers need indefinite write durations. A server-wide
-	// WriteTimeout kills ALL long-lived connections after the deadline,
-	// making streaming impossible. Regular REST handlers are protected by
-	// per-route timeouts applied at the router level instead.
+	// The server-wide WriteTimeout stays off because it would also cut SSE,
+	// WebSocket and gRPC streams. The per-request write deadline in
+	// serverHandler takes its place for everything that does not stream, so
+	// a client that never reads its response cannot pin a handler forever.
 	a.httpServer = &http.Server{
 		Addr:              a.config.HTTPAddress,
-		Handler:           a.router,
+		Handler:           a.serverHandler(),
 		ReadTimeout:       a.config.HTTPTimeout,
 		ReadHeaderTimeout: 10 * time.Second,
-		WriteTimeout:      0, // disabled — streaming requires indefinite writes
+		WriteTimeout:      0, // see serverHandler
 		IdleTimeout:       a.config.HTTPTimeout * 2,
 	}
 
 	// Print startup banner
 	a.printStartupBanner()
 
-	// Execute before run hooks (before HTTP server starts)
+	// Execute before run hooks (before HTTP server starts). The app is
+	// already started, so a failure here has extensions and services to stop.
 	if err := a.lifecycleManager.ExecuteHooks(context.Background(), PhaseBeforeRun, a); err != nil {
+		a.stopAfterRunFailure()
+
 		return fmt.Errorf("before run hooks failed: %w", err)
 	}
 
-	// Channel for shutdown signal
-	shutdown := make(chan os.Signal, 1)
+	// Channel for shutdown signal. Two slots, so a second signal sent right
+	// after the first is not dropped while the first is being handled.
+	shutdown := make(chan os.Signal, 2)
 	signal.Notify(shutdown, a.config.ShutdownSignals...)
+
+	defer signal.Stop(shutdown)
 
 	// Channel for server errors
 	errChan := make(chan error, 1)
@@ -1084,30 +1157,188 @@ func (a *app) Run() error {
 
 	// Execute after run hooks (after HTTP server starts, non-blocking)
 	// Run in background to not block main loop
-	go func() {
-		if err := a.lifecycleManager.ExecuteHooks(context.Background(), PhaseAfterRun, a); err != nil {
-			a.logger.Warn("after run hooks failed", F("error", err))
-		}
-	}()
+	go a.runAfterRunHooks()
 
 	// Wait for shutdown signal or error
 	select {
 	case err := <-errChan:
+		// Typically the address is in use. Start succeeded, so stop what
+		// it started instead of returning with extensions still running.
+		a.stopAfterRunFailure()
+
 		return fmt.Errorf("http server error: %w", err)
 	case sig := <-shutdown:
 		a.logger.Info("shutdown signal received", F("signal", sig.String()))
 	}
 
+	// A second signal means the operator has given up waiting. Graceful
+	// shutdown is bounded, but its budgets can still add up to a minute,
+	// and an ignored Ctrl-C is how people reach for kill -9.
+	done := make(chan struct{})
+	defer close(done)
+
+	go func() {
+		select {
+		case sig := <-shutdown:
+			a.logger.Error("second shutdown signal received, exiting without finishing graceful shutdown",
+				F("signal", sig.String()))
+			forceExit(1)
+		case <-done:
+		}
+	}()
+
 	// Graceful shutdown
 	return a.gracefulShutdown()
 }
 
+// runAfterRunHooks runs the after-run hooks. It runs on a goroutine of its
+// own, so a panic in a hook would take the process down with no unwinding of
+// the app; it is logged instead.
+func (a *app) runAfterRunHooks() {
+	defer func() {
+		if r := recover(); r != nil {
+			a.logger.Error("after run hook panicked", F("panic", fmt.Sprint(r)))
+		}
+	}()
+
+	if err := a.lifecycleManager.ExecuteHooks(context.Background(), PhaseAfterRun, a); err != nil {
+		a.logger.Warn("after run hooks failed", F("error", err))
+	}
+}
+
+// stopAfterRunFailure stops a started app when Run cannot go on.
+func (a *app) stopAfterRunFailure() {
+	ctx, cancel := context.WithTimeout(context.Background(), a.stopTimeout())
+	defer cancel()
+
+	if err := a.Stop(ctx); err != nil {
+		a.logger.Error("app shutdown error", F("error", err))
+	}
+}
+
+// defaultHTTPWriteTimeout is the write deadline for a non-streaming response
+// when AppConfig.HTTPWriteTimeout is left at zero.
+const defaultHTTPWriteTimeout = 60 * time.Second
+
+// serverHandler is the root handler Run serves: the router behind a write
+// deadline for every response that does not stream.
+func (a *app) serverHandler() http.Handler {
+	timeout := a.config.HTTPWriteTimeout
+	if timeout == 0 {
+		timeout = defaultHTTPWriteTimeout
+	}
+
+	return withWriteDeadline(a.router, timeout)
+}
+
+// writeDeadlineKey carries a request's *writeDeadline on its context.
+type writeDeadlineKey struct{}
+
+// writeDeadline lets middleware deeper in the chain lift the deadline once it
+// learns the request is a stream.
+type writeDeadline struct {
+	rc *http.ResponseController
+}
+
+func (d *writeDeadline) lift() {
+	_ = d.rc.SetWriteDeadline(time.Time{})
+}
+
+// withWriteDeadline puts a write deadline of timeout on every response that
+// does not stream. net/http only has a server-wide WriteTimeout, which would
+// also cut every SSE, WebSocket and gRPC stream, so the deadline is set per
+// request through http.ResponseController instead.
+//
+// net/http clears the connection's write deadline after each response, so a
+// deadline never carries over to the next request on a keep-alive connection.
+//
+// Requests are recognised as streams from their headers here, and from the
+// matched route's kind by liftWriteDeadlineOnStreams. A handler that streams
+// on an ordinary route can lift the deadline itself with
+// http.NewResponseController(w).SetWriteDeadline(time.Time{}).
+func withWriteDeadline(next http.Handler, timeout time.Duration) http.Handler {
+	if timeout <= 0 {
+		return next
+	}
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isStreamingRequest(r) {
+			next.ServeHTTP(w, r)
+
+			return
+		}
+
+		rc := http.NewResponseController(w)
+		_ = rc.SetWriteDeadline(time.Now().Add(timeout))
+
+		ctx := context.WithValue(r.Context(), writeDeadlineKey{}, &writeDeadline{rc: rc})
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// isStreamingRequest reports whether the request asks for a connection that
+// outlives an ordinary response: a protocol upgrade (WebSocket), an extended
+// CONNECT (WebSocket or WebTransport over HTTP/2 and HTTP/3), an event
+// stream, or gRPC.
+func isStreamingRequest(r *http.Request) bool {
+	if r.Method == http.MethodConnect || r.Header.Get("Upgrade") != "" {
+		return true
+	}
+
+	if strings.Contains(strings.ToLower(r.Header.Get("Connection")), "upgrade") {
+		return true
+	}
+
+	if strings.Contains(r.Header.Get("Accept"), "text/event-stream") {
+		return true
+	}
+
+	return strings.HasPrefix(r.Header.Get("Content-Type"), "application/grpc")
+}
+
+// liftWriteDeadlineOnStreams lifts the write deadline when the router matches
+// a stream route (SSE, WebSocket, WebTransport), whatever headers the client
+// sent: a client is free to open an event stream without Accept:
+// text/event-stream. It runs inside the tracing and metrics middleware so it
+// shares their route-match holder, and the router stamps the route's kind on
+// that holder before any of the route's own code runs.
+func liftWriteDeadlineOnStreams(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		d, ok := r.Context().Value(writeDeadlineKey{}).(*writeDeadline)
+		if !ok {
+			next.ServeHTTP(w, r)
+
+			return
+		}
+
+		ctx, m := shared.EnsureRouteMatch(r.Context())
+		m.OnMatched(func(string) {
+			if m.Kind.LongLived() {
+				d.lift()
+			}
+		})
+
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
 // gracefulShutdown performs a graceful shutdown.
+//
+// The HTTP drain gets ShutdownTimeout and Stop gets a fresh StopTimeout. They
+// used to share one context, which the drain could spend entirely, leaving
+// Stop to run every extension stop with a context that was already done.
 func (a *app) gracefulShutdown() error {
+	// Readiness turns 503 first, so load balancers stop routing here while
+	// in-flight requests drain.
+	a.shuttingDown.Store(true)
+
 	ctx, cancel := context.WithTimeout(context.Background(), a.config.ShutdownTimeout)
 	defer cancel()
 
-	a.logger.Info("starting graceful shutdown", F("timeout", a.config.ShutdownTimeout))
+	a.logger.Info("starting graceful shutdown",
+		F("timeout", a.config.ShutdownTimeout),
+		F("stop_timeout", a.stopTimeout()),
+	)
 
 	// 1. End open streams, so they don't hold Shutdown for its whole timeout.
 	// Shutdown waits for every active request and an event stream never
@@ -1135,8 +1366,12 @@ func (a *app) gracefulShutdown() error {
 		a.logger.Warn("streams still open at the end of the shutdown timeout", F("error", err))
 	}
 
-	// 3. Stop the application (which stops all services)
-	if err := a.Stop(ctx); err != nil {
+	// 3. Stop the application (which stops all services), on a budget of its
+	// own rather than whatever the drain left.
+	stopCtx, stopCancel := context.WithTimeout(context.Background(), a.stopTimeout())
+	defer stopCancel()
+
+	if err := a.Stop(stopCtx); err != nil {
 		a.logger.Error("app shutdown error", F("error", err))
 	}
 
@@ -1192,12 +1427,42 @@ func (a *app) printStartupBanner() {
 
 // setupBuiltinEndpoints sets up built-in endpoints.
 func (a *app) setupBuiltinEndpoints() error {
-	// Info endpoint
+	// /_/info is opt-in: it lists the services, extensions and versions the
+	// app runs, which is a map for anyone probing it.
+	if !a.config.EnableInfoEndpoint {
+		return nil
+	}
+
 	if err := a.router.GET("/_/info", a.handleInfo); err != nil {
 		return fmt.Errorf("failed to register info endpoint: %w", err)
 	}
 
+	if a.config.ObservabilityGuard == nil && !a.devEnvironment {
+		a.logger.Warn("/_/info enabled without ObservabilityGuard: services, extensions and versions are unauthenticated",
+			F("environment", a.config.Environment),
+		)
+	}
+
 	return nil
+}
+
+// observabilityAllowed reports whether r may see the guarded observability
+// endpoints. With no guard configured everyone may.
+func (a *app) observabilityAllowed(r *http.Request) bool {
+	return a.config.ObservabilityGuard == nil || a.config.ObservabilityGuard(r)
+}
+
+// healthDetailAllowed reports whether r gets the full health report, with
+// each check's message and details, or only the statuses. A guard decides
+// when there is one. Without one, only an explicit development environment
+// shows details: check messages and details are free text that commonly
+// carries connection strings and hostnames.
+func (a *app) healthDetailAllowed(r *http.Request) bool {
+	if a.config.ObservabilityGuard != nil {
+		return a.config.ObservabilityGuard(r)
+	}
+
+	return a.devEnvironment
 }
 
 // setupObservabilityEndpoints sets up observability endpoints.
@@ -1305,6 +1570,13 @@ func (a *app) setupPprofEndpoints() error {
 
 // handleInfo handles the /_/info endpoint.
 func (a *app) handleInfo(ctx Context) error {
+	// 404 rather than 403, as for pprof, so the endpoint is not discoverable.
+	if !a.observabilityAllowed(ctx.Request()) {
+		http.NotFound(ctx.Response(), ctx.Request())
+
+		return nil
+	}
+
 	// Get service names from container
 	services := a.container.Services()
 
@@ -1487,18 +1759,27 @@ func (a *app) stopStartedExtensions(ctx context.Context, started []Extension) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, a.config.ShutdownTimeout)
+	ctx, cancel := context.WithTimeout(ctx, a.stopTimeout())
 	defer cancel()
 
 	for _, ext := range slices.Backward(started) {
 		a.logger.Info("stopping extension after failed start", F("extension", ext.Name()))
+		a.stopExtension(ctx, ext)
+	}
+}
 
-		if err := a.traceExtension(ctx, "stop", ext, ext.Stop); err != nil {
-			a.logger.Error("failed to stop extension",
-				F("extension", ext.Name()),
-				F("error", err),
-			)
-		}
+// stopExtension stops one extension within ctx's budget. An extension whose
+// Stop ignores its context is abandoned at the deadline instead of holding
+// up the rest of shutdown.
+func (a *app) stopExtension(ctx context.Context, ext Extension) {
+	err := runStep(ctx, "extension "+ext.Name()+" stop", func(ctx context.Context) error {
+		return a.traceExtension(ctx, "stop", ext, ext.Stop)
+	})
+	if err != nil {
+		a.logger.Error("failed to stop extension",
+			F("extension", ext.Name()),
+			F("error", err),
+		)
 	}
 }
 
@@ -1511,16 +1792,9 @@ func (a *app) stopExtensions(ctx context.Context) {
 			F("error", err),
 		)
 
-		for _, v := range slices.Backward(a.extensions) {
-			ext := v
+		for _, ext := range slices.Backward(a.extensions) {
 			a.logger.Info("stopping extension", F("extension", ext.Name()))
-
-			if err := a.traceExtension(ctx, "stop", ext, ext.Stop); err != nil {
-				a.logger.Error("failed to stop extension",
-					F("extension", ext.Name()),
-					F("error", err),
-				)
-			}
+			a.stopExtension(ctx, ext)
 		}
 
 		return
@@ -1539,12 +1813,7 @@ func (a *app) stopExtensions(ctx context.Context) {
 			F("extension", ext.Name()),
 		)
 
-		if err := a.traceExtension(ctx, "stop", ext, ext.Stop); err != nil {
-			a.logger.Error("failed to stop extension",
-				F("extension", ext.Name()),
-				F("error", err),
-			)
-		}
+		a.stopExtension(ctx, ext)
 	}
 }
 
@@ -1600,14 +1869,31 @@ func (a *app) registerExtensionHealthChecks() {
 		extRef := ext
 		extName := ext.Name()
 
+		// The error text stays out of the result. Health results are served
+		// over HTTP and a driver error routinely names the host, the user and
+		// sometimes the whole DSN with its password. It goes to the log
+		// instead, once per distinct error rather than once per check round.
+		var lastErr atomic.Pointer[string]
+
 		checkName := "extension:" + extName
 		if err := a.healthManager.RegisterFn(checkName, func(ctx context.Context) *HealthResult {
 			if err := extRef.Health(ctx); err != nil {
+				msg := err.Error()
+				if prev := lastErr.Swap(&msg); prev == nil || *prev != msg {
+					a.logger.Warn("extension health check failed",
+						F("extension", extName),
+						F("error", msg),
+					)
+				}
+
 				return &HealthResult{
 					Status:  HealthStatusUnhealthy,
 					Message: extName + " extension unhealthy",
-					Details: map[string]any{"error": err.Error()},
 				}
+			}
+
+			if lastErr.Swap(nil) != nil {
+				a.logger.Info("extension health check recovered", F("extension", extName))
 			}
 
 			return &HealthResult{
@@ -1993,11 +2279,17 @@ func (a *app) handleMetrics(ctx Context) error {
 		})
 	}
 
+	if !a.observabilityAllowed(ctx.Request()) {
+		http.NotFound(ctx.Response(), ctx.Request())
+
+		return nil
+	}
+
 	// If the collector implements PrometheusProvider, delegate to the real
 	// promhttp handler so that content negotiation (OpenMetrics, compression,
 	// etc.) is handled correctly by the Prometheus client library.
 	if p, ok := a.metrics.(shared.PrometheusProvider); ok {
-		p.PrometheusHandler().ServeHTTP(ctx.Response(), ctx.Request())
+		a.scrapeHandler(p).ServeHTTP(ctx.Response(), ctx.Request())
 
 		return nil
 	}
@@ -2021,6 +2313,59 @@ func (a *app) handleMetrics(ctx Context) error {
 	return nil
 }
 
+// defaultMetricsScrapeCacheTTL is how long a rendered scrape is reused when
+// AppConfig.MetricsScrapeCacheTTL is left at zero. A second is far below any
+// sensible scrape interval, so a single scraper always sees fresh data, while
+// a burst of scrapers (several Prometheus replicas, a dashboard, a script in
+// a loop) shares one render.
+const defaultMetricsScrapeCacheTTL = time.Second
+
+// scrapeHandler returns the /_/metrics handler, wrapped in the scrape cache.
+// The bridge is fixed once the collector is built, so the wrapper is built
+// once and reused.
+func (a *app) scrapeHandler(p shared.PrometheusProvider) http.Handler {
+	a.metricsOnce.Do(func() {
+		ttl := a.config.MetricsScrapeCacheTTL
+		if ttl == 0 {
+			ttl = defaultMetricsScrapeCacheTTL
+		}
+
+		a.metricsHandler = exporters.NewScrapeCache(p.PrometheusHandler(), ttl)
+	})
+
+	return a.metricsHandler
+}
+
+// healthSummary is what /_/health shows a caller that may not see details:
+// the overall status and the status of each check, nothing free-text.
+type healthSummary struct {
+	Overall   HealthStatus                  `json:"overall"`
+	Timestamp time.Time                     `json:"timestamp"`
+	Services  map[string]healthCheckSummary `json:"services"`
+}
+
+type healthCheckSummary struct {
+	Status HealthStatus `json:"status"`
+}
+
+func summarizeHealthReport(report *HealthReport) healthSummary {
+	out := healthSummary{
+		Overall:   report.Overall,
+		Timestamp: report.Timestamp,
+		Services:  make(map[string]healthCheckSummary, len(report.Services)),
+	}
+
+	for name, res := range report.Services {
+		if res == nil {
+			continue
+		}
+
+		out.Services[name] = healthCheckSummary{Status: res.Status}
+	}
+
+	return out
+}
+
 // handleHealth handles the /_/health endpoint.
 func (a *app) handleHealth(ctx Context) error {
 	if a.healthManager == nil {
@@ -2040,12 +2385,17 @@ func (a *app) handleHealth(ctx Context) error {
 
 	report, fresh := a.healthReport(ctx.Request().Context())
 
+	var body any = report
+	if !a.healthDetailAllowed(ctx.Request()) {
+		body = summarizeHealthReport(report)
+	}
+
 	if !fresh {
 		return ctx.JSON(http.StatusServiceUnavailable, map[string]any{
 			"status": "stale",
 			"error":  "health report is older than the staleness bound",
 			"age":    time.Since(report.Timestamp).String(),
-			"report": report,
+			"report": body,
 		})
 	}
 
@@ -2054,12 +2404,37 @@ func (a *app) handleHealth(ctx Context) error {
 	if report.Overall == HealthStatusUnhealthy {
 		statusCode = http.StatusServiceUnavailable
 
-		a.logger.Warn("health check reporting unhealthy status",
-			F("services", len(report.Services)),
-		)
+		a.logUnhealthyReport(report)
 	}
 
-	return ctx.JSON(statusCode, report)
+	return ctx.JSON(statusCode, body)
+}
+
+// logUnhealthyReport logs an unhealthy report once. Every probe is answered
+// from the same cached report until the next check round, so logging per
+// request would print the same line at whatever rate the probes arrive.
+func (a *app) logUnhealthyReport(report *HealthReport) {
+	ts := report.Timestamp.UnixNano()
+
+	prev := a.unhealthyLogged.Load()
+	if prev == ts || !a.unhealthyLogged.CompareAndSwap(prev, ts) {
+		return
+	}
+
+	failing := make([]string, 0, len(report.Services))
+
+	for name, res := range report.Services {
+		if res != nil && res.Status == HealthStatusUnhealthy {
+			failing = append(failing, name)
+		}
+	}
+
+	slices.Sort(failing)
+
+	a.logger.Warn("health check reporting unhealthy status",
+		F("services", len(report.Services)),
+		F("unhealthy", failing),
+	)
 }
 
 // healthStalenessBound is how far behind the background check loop a cached
@@ -2113,14 +2488,21 @@ func (a *app) handleHealthReady(ctx Context) error {
 		})
 	}
 
-	// During startup grace period, always return ready to prevent
-	// PaaS platforms from killing the app before health checks stabilize
-	if time.Since(a.startTime) < a.config.HealthGracePeriod {
-		return ctx.JSON(http.StatusOK, map[string]string{
-			"status": "starting",
+	// Once shutdown starts the instance stops taking new work, so tell the
+	// load balancer before the listener closes rather than after.
+	if a.shuttingDown.Load() {
+		return ctx.JSON(http.StatusServiceUnavailable, map[string]string{
+			"status":  "not ready",
+			"message": "shutting down",
 		})
 	}
 
+	// No startup grace here. A failed readiness probe only takes the
+	// instance out of rotation, it never restarts it, so there is nothing to
+	// protect against, and answering "ready" for the first minute whatever
+	// the checks say routes traffic to an instance that cannot serve it.
+	// Start runs a full check round, extension checks included, before the
+	// endpoint is reachable, so there is always a real report to answer from.
 	report, fresh := a.healthReport(ctx.Request().Context())
 
 	if !fresh {
@@ -2410,10 +2792,11 @@ func buildTracing(config AppConfig, cm ConfigManager, log Logger) *telemetry.Pro
 	fromFile := readTracingFile(cm, log)
 
 	settings := telemetry.Resolve(telemetry.Inputs{
-		Code:        config.TracingConfig,
-		File:        fromFile,
-		Environment: config.Environment,
-		Getenv:      os.Getenv,
+		Code:                config.TracingConfig,
+		File:                fromFile,
+		Environment:         config.Environment,
+		Getenv:              os.Getenv,
+		TrustRemoteSampling: config.TrustRemoteSampling || trustRemoteSamplingFromFile(cm),
 	})
 
 	for _, w := range settings.Warnings {
@@ -2436,6 +2819,16 @@ func buildTracing(config AppConfig, cm ConfigManager, log Logger) *telemetry.Pro
 	}
 
 	return provider
+}
+
+// trustRemoteSamplingKey is the forge config key for
+// AppConfig.TrustRemoteSampling.
+const trustRemoteSamplingKey = "tracing.trust_remote_sampling"
+
+// trustRemoteSamplingFromFile reports whether the config file turns on
+// trusting incoming sampling decisions.
+func trustRemoteSamplingFromFile(cm ConfigManager) bool {
+	return cm != nil && cm.HasKey(trustRemoteSamplingKey) && cm.GetBool(trustRemoteSamplingKey)
 }
 
 // readTracingFile returns the tracing block from the config file. A block that

@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -121,12 +122,72 @@ type AppConfig struct {
 	// "*.example.com", or "*" to allow any origin.
 	WebSocketOrigins []string
 
+	// HTTPWriteTimeout bounds how long the server spends writing one response.
+	// A client that requests a large body and never reads it otherwise pins a
+	// handler goroutine and a connection forever. Responses that stream (a
+	// WebSocket or other Upgrade, an SSE request, gRPC, or any route the router
+	// classifies as a stream) are exempt, so long-lived connections keep
+	// working. Zero means the default of 60s; negative disables the deadline.
+	HTTPWriteTimeout time.Duration
+
 	// Shutdown
-	ShutdownTimeout time.Duration // Default: 30s
+	ShutdownTimeout time.Duration // HTTP drain budget. Default: 30s
 	ShutdownSignals []os.Signal   // Default: SIGINT, SIGTERM
 
+	// StopTimeout bounds the second half of a graceful shutdown: lifecycle
+	// hooks, extension stops and the DI container. It is separate from
+	// ShutdownTimeout, which the HTTP drain spends, so a slow drain cannot
+	// leave the extensions with no time at all. A step that overruns is
+	// abandoned and logged instead of blocking shutdown forever. Zero means
+	// the same value as ShutdownTimeout.
+	StopTimeout time.Duration
+
+	// ObservabilityGuard authorizes access to the detailed observability
+	// endpoints: the per-check detail of /_/health, /_/info and /_/metrics.
+	// Return false to deny. A denied /_/health caller still gets the overall
+	// status and the status of each check, without messages or details, and a
+	// denied /_/info or /_/metrics caller gets a 404. /_/health/live and
+	// /_/health/ready never consult the guard, so orchestrator probes keep
+	// working without credentials.
+	//
+	// Nil means /_/metrics and an enabled /_/info are open, and /_/health
+	// shows details only when Environment is explicitly a development one
+	// (development, dev, local or test).
+	ObservabilityGuard func(*http.Request) bool
+
+	// EnableInfoEndpoint registers /_/info, which lists the services,
+	// extensions, versions and Go version the app runs. Default: false.
+	EnableInfoEndpoint bool
+
+	// MetricsScrapeCacheTTL is how long a rendered /_/metrics response is
+	// reused. Concurrent scrapes inside the window share one render, so a
+	// burst of scrapers costs one gather and one encode. Zero means the
+	// default of 1s; negative disables the cache.
+	MetricsScrapeCacheTTL time.Duration
+
+	// TrustRemoteSampling makes the default trace sampler follow the sampled
+	// flag of an incoming traceparent. Off by default: the flag is whatever
+	// the client sent, so following it let any client have every request it
+	// made sampled and exported. Off, a request that carries a traceparent
+	// keeps its trace ID but is sampled at the configured ratio. Turn it on
+	// for a service only internal callers reach, so their traces stay whole.
+	// The forge config key tracing.trust_remote_sampling turns it on too.
+	TrustRemoteSampling bool
+
+	// ExposeInternalErrors decides whether 5xx responses carry the internal
+	// error text. Nil means it follows Environment: only an explicitly set
+	// development, dev, local or test environment exposes it. An unset or
+	// unrecognised environment, including staging and prod, redacts.
+	ExposeInternalErrors *bool
+
 	// Health
-	HealthGracePeriod time.Duration // Grace period after startup during which health endpoints always return 200. Default: 60s
+	// HealthGracePeriod is how long after startup /_/health answers 200 with
+	// status "starting" whatever the checks say, so a platform that uses it as
+	// a liveness probe does not kill an app whose dependencies are still
+	// warming up. Readiness (/_/health/ready) ignores it and reports the real
+	// result, so traffic is not routed to an instance that cannot serve it.
+	// Default: 60s
+	HealthGracePeriod time.Duration
 
 	// Extensions
 	Extensions []Extension // Extensions to register with the app
@@ -171,6 +232,11 @@ type AppConfig struct {
 	// metricsConfigSet records a WithAppMetricsConfig call, so a config equal
 	// to the defaults still counts as set in code.
 	metricsConfigSet bool
+
+	// environmentDefaulted marks the "development" that DefaultAppConfig puts
+	// in Environment as a placeholder rather than a choice. Security defaults
+	// treat it as unset; see environmentIsDevelopment.
+	environmentDefaulted bool
 }
 
 // DefaultAppConfig returns a default application configuration.
@@ -206,6 +272,8 @@ func DefaultAppConfig() AppConfig {
 		EnableEnvConfig:  true, // Enabled by default
 		EnvSeparator:     "_",  // Standard separator
 		EnvOverridesFile: true, // Env takes precedence over files by default
+
+		environmentDefaulted: true,
 	}
 }
 
@@ -244,6 +312,7 @@ func WithAppDescription(description string) AppOption {
 func WithAppEnvironment(environment string) AppOption {
 	return func(c *AppConfig) {
 		c.Environment = environment
+		c.environmentDefaulted = false
 	}
 }
 
@@ -483,6 +552,91 @@ func WithWebSocketOrigins(origins ...string) AppOption {
 	return func(c *AppConfig) {
 		c.WebSocketOrigins = append(c.WebSocketOrigins, origins...)
 	}
+}
+
+// WithHTTPWriteTimeout bounds how long the server spends writing one
+// non-streaming response. See AppConfig.HTTPWriteTimeout. Pass a negative
+// value to disable it.
+func WithHTTPWriteTimeout(timeout time.Duration) AppOption {
+	return func(c *AppConfig) { c.HTTPWriteTimeout = timeout }
+}
+
+// WithStopTimeout sets the budget for stopping hooks, extensions and the DI
+// container during shutdown. See AppConfig.StopTimeout.
+func WithStopTimeout(timeout time.Duration) AppOption {
+	return func(c *AppConfig) { c.StopTimeout = timeout }
+}
+
+// WithObservabilityGuard restricts the detailed observability endpoints. The
+// guard runs on every request to /_/health, /_/info and /_/metrics; see
+// AppConfig.ObservabilityGuard for what a denied caller sees.
+//
+//	forge.WithObservabilityGuard(func(r *http.Request) bool {
+//	    return subtle.ConstantTimeCompare(
+//	        []byte(r.Header.Get("X-Ops-Token")), []byte(token)) == 1
+//	})
+func WithObservabilityGuard(guard func(*http.Request) bool) AppOption {
+	return func(c *AppConfig) { c.ObservabilityGuard = guard }
+}
+
+// WithInfoEndpoint registers /_/info. It is off by default because it lists
+// the app's services, extensions and versions to whoever asks; pair it with
+// WithObservabilityGuard anywhere beyond localhost.
+func WithInfoEndpoint() AppOption {
+	return func(c *AppConfig) { c.EnableInfoEndpoint = true }
+}
+
+// WithMetricsScrapeCacheTTL sets how long a rendered /_/metrics response is
+// reused. See AppConfig.MetricsScrapeCacheTTL.
+func WithMetricsScrapeCacheTTL(ttl time.Duration) AppOption {
+	return func(c *AppConfig) { c.MetricsScrapeCacheTTL = ttl }
+}
+
+// WithTrustRemoteSampling makes the default trace sampler follow the sampled
+// flag of incoming traceparent headers. Use it only for services that
+// untrusted clients cannot reach. See AppConfig.TrustRemoteSampling.
+func WithTrustRemoteSampling() AppOption {
+	return func(c *AppConfig) { c.TrustRemoteSampling = true }
+}
+
+// WithExposeInternalErrors overrides whether 5xx responses carry the internal
+// error text, whatever the environment. See AppConfig.ExposeInternalErrors.
+func WithExposeInternalErrors(expose bool) AppOption {
+	return func(c *AppConfig) { c.ExposeInternalErrors = &expose }
+}
+
+// developmentEnvironments are the Environment values that turn on the
+// debugging defaults. Compared case-insensitively.
+var developmentEnvironments = map[string]bool{
+	"development": true,
+	"dev":         true,
+	"local":       true,
+	"test":        true,
+}
+
+// environmentIsDevelopment reports whether config names a development
+// environment on purpose. An empty Environment is unset, and so is the
+// "development" placeholder DefaultAppConfig fills in when nothing replaced
+// it: an app deployed without setting its environment must get the
+// production-safe behaviour, not the debugging one.
+func environmentIsDevelopment(config AppConfig) bool {
+	env := strings.ToLower(strings.TrimSpace(config.Environment))
+	if env == "" || (config.environmentDefaulted && env == "development") {
+		return false
+	}
+
+	return developmentEnvironments[env]
+}
+
+// resolveExposeInternalErrors applies an explicit ExposeInternalErrors first
+// and otherwise exposes error text only in an explicit development
+// environment.
+func resolveExposeInternalErrors(config AppConfig, devEnvironment bool) bool {
+	if config.ExposeInternalErrors != nil {
+		return *config.ExposeInternalErrors
+	}
+
+	return devEnvironment
 }
 
 // NewApp creates a new Forge application.

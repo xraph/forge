@@ -308,14 +308,15 @@ func (c *appTestController) Routes(r Router) error {
 	})
 }
 
-// TestAppInfoEndpoint tests the /_/info endpoint.
+// TestAppInfoEndpoint tests the /_/info endpoint, which is opt-in.
 func TestAppInfoEndpoint(t *testing.T) {
 	app := NewApp(AppConfig{
-		Name:        "info-test",
-		Version:     "1.0.0",
-		Description: "Test app",
-		Environment: "test",
-		Logger:      logger.NewTestLogger(),
+		Name:               "info-test",
+		Version:            "1.0.0",
+		Description:        "Test app",
+		Environment:        "test",
+		Logger:             logger.NewTestLogger(),
+		EnableInfoEndpoint: true,
 	})
 
 	// Start app

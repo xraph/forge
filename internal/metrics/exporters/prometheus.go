@@ -42,6 +42,9 @@ func DefaultPrometheusConfig() PrometheusConfig {
 type PrometheusBridge struct {
 	registry  *prometheus.Registry
 	collector *forgeCollector
+
+	handlerOnce sync.Once
+	handler     http.Handler
 }
 
 // NewPrometheusBridge builds a bridge that reads `snapshot` fresh on each scrape.
@@ -73,9 +76,18 @@ func newBridge(fc *forgeCollector, cfg PrometheusConfig) *PrometheusBridge {
 	return &PrometheusBridge{registry: reg, collector: fc}
 }
 
-// Handler returns an HTTP handler that serves the registry on scrape.
+// Handler returns an HTTP handler that serves the registry on scrape. Each
+// scrape is cut off after ScrapeTimeout. Wrap it in NewScrapeCache to share
+// renders between scrapes and bound how many run at once.
 func (b *PrometheusBridge) Handler() http.Handler {
-	return promhttp.HandlerFor(b.registry, promhttp.HandlerOpts{EnableOpenMetrics: true})
+	b.handlerOnce.Do(func() {
+		b.handler = promhttp.HandlerFor(b.registry, promhttp.HandlerOpts{
+			EnableOpenMetrics: true,
+			Timeout:           ScrapeTimeout,
+		})
+	})
+
+	return b.handler
 }
 
 // GatherText gathers the registry and encodes it in Prometheus text format.

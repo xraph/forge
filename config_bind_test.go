@@ -63,10 +63,16 @@ func TestBindConfigWarnsAndReportsInvalidValues(t *testing.T) {
 		t.Fatalf("warnings = %+v", warns)
 	}
 
-	for field, want := range map[string]any{"key": "x.max_size", "value": "big", "expected": "int"} {
+	for field, want := range map[string]any{"key": "x.max_size", "expected": "int"} {
 		if v, _ := warns[0].Field(field); v != want {
 			t.Fatalf("%s = %#v, want %#v", field, v, want)
 		}
+	}
+
+	// The value is left out: an invalid value is often a secret in the
+	// wrong place.
+	if v, ok := warns[0].Field("value"); ok {
+		t.Fatalf("warning carries the value %#v", v)
 	}
 
 	// confy's own warning must not fire as well: one warning per key.
