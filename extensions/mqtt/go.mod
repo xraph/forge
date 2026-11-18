@@ -8,7 +8,7 @@ require (
 	github.com/eclipse/paho.mqtt.golang v1.5.1
 	github.com/xraph/confy v1.1.0
 	github.com/xraph/forge v1.12.9
-	github.com/xraph/vessel v1.0.7
+	github.com/xraph/vessel v1.0.8
 )
 
 require (

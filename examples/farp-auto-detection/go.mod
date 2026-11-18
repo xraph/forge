@@ -95,7 +95,7 @@ require (
 	github.com/xraph/farp v1.3.1 // indirect
 	github.com/xraph/farp/discovery v1.3.1 // indirect
 	github.com/xraph/go-utils v1.5.1 // indirect
-	github.com/xraph/vessel v1.0.7 // indirect
+	github.com/xraph/vessel v1.0.8 // indirect
 	go.etcd.io/etcd/api/v3 v3.5.17 // indirect
 	go.etcd.io/etcd/client/pkg/v3 v3.5.17 // indirect
 	go.etcd.io/etcd/client/v3 v3.5.17 // indirect

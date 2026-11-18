@@ -111,13 +111,13 @@ require (
 	github.com/xdg-go/scram v1.2.0 // indirect
 	github.com/xdg-go/stringprep v1.0.4 // indirect
 	github.com/xraph/confy v1.0.3 // indirect
-	github.com/xraph/go-utils v1.3.0 // indirect
+	github.com/xraph/go-utils v1.5.1 // indirect
 	github.com/xraph/grove v1.7.3 // indirect
 	github.com/xraph/grove/drivers/mongodriver v1.7.3 // indirect
 	github.com/xraph/grove/drivers/sqlitedriver v1.7.3 // indirect
 	github.com/xraph/grove/kv v1.7.2 // indirect
 	github.com/xraph/trove v1.7.1 // indirect
-	github.com/xraph/vessel v1.0.4 // indirect
+	github.com/xraph/vessel v1.0.8 // indirect
 	github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78 // indirect
 	github.com/zeebo/blake3 v0.2.4 // indirect
 	go.jetify.com/typeid/v2 v2.0.0-alpha.3 // indirect
