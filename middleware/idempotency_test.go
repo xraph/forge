@@ -408,13 +408,13 @@ func TestIdempotencyDoesNotReplayHeadersSetBeforeTheHandler(t *testing.T) {
 
 	mw := Idempotency(NewMemoryIdempotencyStore())
 	withRequestID := func(id string) func(forge.Context) {
-		return func(ctx forge.Context) { ctx.Response().Header().Set("X-Request-Id", id) }
+		return func(ctx forge.Context) { ctx.Response().Header().Set("X-Request-ID", id) }
 	}
 
 	_, _ = runIdem(t, mw, countingHandler(&calls), idemCall{key: "k1", body: "{}", setup: withRequestID("req-1")})
 	second, _ := runIdem(t, mw, countingHandler(&calls), idemCall{key: "k1", body: "{}", setup: withRequestID("req-2")})
 
-	if got := second.Header().Get("X-Request-Id"); got != "req-2" {
+	if got := second.Header().Get("X-Request-ID"); got != "req-2" {
 		t.Fatalf("X-Request-Id = %q, want req-2 (the first request's id leaked into the replay)", got)
 	}
 }
@@ -693,7 +693,7 @@ func TestIdempotencyReplayIsByteIdentical(t *testing.T) {
 		hd.Add("Link", "</a>; rel=a")
 		hd.Add("Link", "</b>; rel=b")
 		hd.Set("Content-Length", strconv.Itoa(len(payload)))
-		hd.Set("Etag", `"v1"`)
+		hd.Set("ETag", `"v1"`)
 		ctx.Response().WriteHeader(http.StatusAccepted)
 
 		// The handler writes in pieces and then reuses its buffer, so the
