@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.14.0](https://github.com/xraph/forge/compare/v1.13.7...v1.14.0) (2026-11-18)
+
+
+### Bug Fixes
+
+* **consensus:** make raft safe and wire the service, verify farp schemas (#130) ([2a6c517c](https://github.com/xraph/forge/commit/2a6c517c))
+* lock down observability endpoints, bound shutdown and stop leaking internal errors (#125) ([420b317c](https://github.com/xraph/forge/commit/420b317c))
+* **streaming:** stop connection leaks, authorize channels and make bans work (#128) ([380baf5e](https://github.com/xraph/forge/commit/380baf5e))
+* **router:** fail closed in interceptors, cap bodies early, scope idempotency per principal (#123) ([39f77790](https://github.com/xraph/forge/commit/39f77790))
+* **client:** escape spec text in generated clients and harden the CLI (#129) ([1fde00c3](https://github.com/xraph/forge/commit/1fde00c3))
+* **middleware:** recover Timeout panics, fix rate limiter refill, pool gzip writers (#124) ([6dfef514](https://github.com/xraph/forge/commit/6dfef514))
+* **client:** keep streams out of REST clients, and add refetchInterval (#121) ([0c56e665](https://github.com/xraph/forge/commit/0c56e665))
+
+
+### Maintenance
+
+* **deps:** bump vessel to v1.0.7 (#122) ([24a1c790](https://github.com/xraph/forge/commit/24a1c790))
+* **deps:** bump vessel to v1.0.6 (#120) ([8b255311](https://github.com/xraph/forge/commit/8b255311))
+* **dart:** pin grove_crdt to the 1.10.3 release (#119) ([ff8416b4](https://github.com/xraph/forge/commit/ff8416b4))
+* **changelog:** update CHANGELOG.md for v1.13.7 ([dd71346f](https://github.com/xraph/forge/commit/dd71346f))
+
 ## [1.13.7](https://github.com/xraph/forge/compare/v1.13.6...v1.13.7) (2026-11-12)
 
 
