@@ -1,30 +1,67 @@
 package gateway
 
 import (
+	"container/list"
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 
 	"github.com/xraph/farp"
 )
+
+// DefaultSchemaCacheSize is the number of verified schemas a Client keeps
+// when no explicit size is configured.
+const DefaultSchemaCacheSize = 1024
+
+// ErrSchemaHashMismatch is returned when a schema's content does not hash to
+// the value its descriptor claims.
+var ErrSchemaHashMismatch = errors.New("farp gateway: schema content does not match descriptor hash")
 
 // Client is a reference implementation for API gateway integration
 // It watches for service schema changes and provides conversion utilities.
 type Client struct {
 	registry      farp.SchemaRegistry
 	manifestCache map[string]*farp.SchemaManifest // key: instanceID
-	schemaCache   map[string]any                  // key: hash
+	schemaCache   *schemaLRU
+	logger        *slog.Logger
 	mu            sync.RWMutex
 }
 
+// ClientOption configures a Client.
+type ClientOption func(*Client)
+
+// WithSchemaCacheSize bounds the number of schemas kept in the client's cache.
+// Values below 1 fall back to DefaultSchemaCacheSize.
+func WithSchemaCacheSize(n int) ClientOption {
+	return func(c *Client) {
+		c.schemaCache = newSchemaLRU(n)
+	}
+}
+
+// WithLogger makes the client log schemas it skips because they could not be
+// fetched or their content did not match the descriptor hash. Without it the
+// client skips them silently.
+func WithLogger(logger *slog.Logger) ClientOption {
+	return func(c *Client) {
+		c.logger = logger
+	}
+}
+
 // NewClient creates a new gateway client.
-func NewClient(registry farp.SchemaRegistry) *Client {
-	return &Client{
+func NewClient(registry farp.SchemaRegistry, opts ...ClientOption) *Client {
+	c := &Client{
 		registry:      registry,
 		manifestCache: make(map[string]*farp.SchemaManifest),
-		schemaCache:   make(map[string]any),
+		schemaCache:   newSchemaLRU(DefaultSchemaCacheSize),
 	}
+
+	for _, opt := range opts {
+		opt(c)
+	}
+
+	return c
 }
 
 // WatchServices watches for service registrations and schema updates
@@ -36,12 +73,30 @@ func (c *Client) WatchServices(ctx context.Context, serviceName string, onChange
 		return fmt.Errorf("failed to list initial manifests: %w", err)
 	}
 
+	// Seed the manifest cache so the first watch event is applied on top of
+	// the full initial set rather than replacing it.
+	c.mu.Lock()
+
+	for _, m := range manifests {
+		if m != nil {
+			c.manifestCache[m.InstanceID] = m
+		}
+	}
+
+	c.mu.Unlock()
+
 	// Convert initial manifests to routes
 	routes := c.ConvertToRoutes(manifests)
 	onChange(routes)
 
 	// Watch for changes
 	return c.registry.WatchManifests(ctx, serviceName, func(event *farp.ManifestEvent) {
+		// A registry may deliver nil once it is closed. There is nothing to
+		// apply in that case, and dereferencing it would panic.
+		if event == nil || event.Manifest == nil {
+			return
+		}
+
 		// Update manifest cache
 		c.mu.Lock()
 
@@ -72,27 +127,26 @@ func (c *Client) ConvertToRoutes(manifests []*farp.SchemaManifest) []ServiceRout
 	var routes []ServiceRoute
 
 	for _, manifest := range manifests {
+		if manifest == nil {
+			continue
+		}
+
 		// Fetch schemas for this manifest
 		for _, schemaDesc := range manifest.Schemas {
-			var (
-				schema any
-				err    error
-			)
-
-			// Check cache first
-
-			if cached, ok := c.getSchemaFromCache(schemaDesc.Hash); ok {
-				schema = cached
-			} else {
-				// Fetch schema based on location type
-				schema, err = c.fetchSchema(context.Background(), &schemaDesc)
-				if err != nil {
-					// Log error and skip
-					continue
+			schema, err := c.resolveSchema(context.Background(), manifest.InstanceID, &schemaDesc)
+			if err != nil {
+				// Unfetchable or unverifiable schemas produce no routes.
+				if c.logger != nil {
+					c.logger.Warn("farp gateway: skipping schema",
+						slog.String("service", manifest.ServiceName),
+						slog.String("instance_id", manifest.InstanceID),
+						slog.String("schema_type", string(schemaDesc.Type)),
+						slog.String("hash", schemaDesc.Hash),
+						slog.Any("error", err),
+					)
 				}
 
-				// Cache the schema
-				c.cacheSchema(schemaDesc.Hash, schema)
+				continue
 			}
 
 			// Convert schema to routes based on type
@@ -135,6 +189,53 @@ type ServiceRoute struct {
 
 	// ServiceVersion is the version of the backend service
 	ServiceVersion string
+}
+
+// resolveSchema returns the schema for a descriptor, from cache when this
+// instance has already presented verified content for the same hash.
+//
+// The hash in a descriptor is supplied by the registrant, so it is never
+// trusted on its own: fetched content is hashed again and rejected when it
+// does not match. The cache is keyed by instance ID as well as hash, so one
+// registrant can never populate the entry another registrant reads.
+func (c *Client) resolveSchema(ctx context.Context, instanceID string, desc *farp.SchemaDescriptor) (any, error) {
+	key := schemaCacheKey{instanceID: instanceID, hash: desc.Hash}
+
+	if cached, ok := c.schemaCache.get(key); ok {
+		return cached, nil
+	}
+
+	schema, err := c.fetchSchema(ctx, desc)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := VerifySchemaHash(schema, desc.Hash); err != nil {
+		return nil, err
+	}
+
+	c.schemaCache.put(key, schema)
+
+	return schema, nil
+}
+
+// VerifySchemaHash recomputes the SHA-256 checksum of schema with
+// farp.CalculateSchemaChecksum and compares it to expected.
+func VerifySchemaHash(schema any, expected string) error {
+	if expected == "" {
+		return fmt.Errorf("%w: descriptor has no hash", ErrSchemaHashMismatch)
+	}
+
+	actual, err := farp.CalculateSchemaChecksum(schema)
+	if err != nil {
+		return fmt.Errorf("farp gateway: hash schema: %w", err)
+	}
+
+	if actual != expected {
+		return fmt.Errorf("%w: descriptor claims %s, content hashes to %s", ErrSchemaHashMismatch, expected, actual)
+	}
+
+	return nil
 }
 
 // fetchSchema fetches a schema based on its location.
@@ -273,30 +374,9 @@ func (c *Client) convertGraphQLToRoutes(manifest *farp.SchemaManifest, schema an
 	return routes
 }
 
-// getSchemaFromCache retrieves a cached schema by hash.
-func (c *Client) getSchemaFromCache(hash string) (any, bool) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	schema, ok := c.schemaCache[hash]
-
-	return schema, ok
-}
-
-// cacheSchema stores a schema in cache.
-func (c *Client) cacheSchema(hash string, schema any) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	c.schemaCache[hash] = schema
-}
-
 // ClearCache clears the schema cache.
 func (c *Client) ClearCache() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	c.schemaCache = make(map[string]any)
+	c.schemaCache.clear()
 }
 
 // GetManifest retrieves a cached manifest by instance ID.
@@ -307,4 +387,83 @@ func (c *Client) GetManifest(instanceID string) (*farp.SchemaManifest, bool) {
 	manifest, ok := c.manifestCache[instanceID]
 
 	return manifest, ok
+}
+
+type schemaCacheKey struct {
+	instanceID string
+	hash       string
+}
+
+type schemaCacheEntry struct {
+	key    schemaCacheKey
+	schema any
+}
+
+// schemaLRU is a size-bounded least-recently-used cache of verified schemas.
+type schemaLRU struct {
+	mu      sync.Mutex
+	max     int
+	order   *list.List
+	entries map[schemaCacheKey]*list.Element
+}
+
+func newSchemaLRU(maxEntries int) *schemaLRU {
+	if maxEntries < 1 {
+		maxEntries = DefaultSchemaCacheSize
+	}
+
+	return &schemaLRU{
+		max:     maxEntries,
+		order:   list.New(),
+		entries: make(map[schemaCacheKey]*list.Element),
+	}
+}
+
+func (l *schemaLRU) get(key schemaCacheKey) (any, bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	el, ok := l.entries[key]
+	if !ok {
+		return nil, false
+	}
+
+	l.order.MoveToFront(el)
+
+	return el.Value.(*schemaCacheEntry).schema, true
+}
+
+func (l *schemaLRU) put(key schemaCacheKey, schema any) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	if el, ok := l.entries[key]; ok {
+		el.Value.(*schemaCacheEntry).schema = schema
+		l.order.MoveToFront(el)
+
+		return
+	}
+
+	l.entries[key] = l.order.PushFront(&schemaCacheEntry{key: key, schema: schema})
+
+	for l.order.Len() > l.max {
+		oldest := l.order.Back()
+		l.order.Remove(oldest)
+		delete(l.entries, oldest.Value.(*schemaCacheEntry).key)
+	}
+}
+
+func (l *schemaLRU) len() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	return l.order.Len()
+}
+
+func (l *schemaLRU) clear() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	l.order.Init()
+	l.entries = make(map[schemaCacheKey]*list.Element)
 }

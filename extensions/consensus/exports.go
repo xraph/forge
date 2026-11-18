@@ -224,6 +224,7 @@ var (
 	WithClusterID     = internal.WithClusterID
 	WithBindAddress   = internal.WithBindAddress
 	WithPeers         = internal.WithPeers
+	WithJoin          = internal.WithJoin
 	WithTransportType = internal.WithTransportType
 	WithDiscoveryType = internal.WithDiscoveryType
 	WithStorageType   = internal.WithStorageType

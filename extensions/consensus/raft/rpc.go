@@ -188,23 +188,17 @@ func (rh *RPCHandler) SendAppendEntries(ctx context.Context, target string, req 
 		forge.F("entries_count", len(req.Entries)),
 	)
 
-	// Create message
-	msg := internal.Message{
-		Type:      internal.MessageTypeAppendEntries,
-		From:      rh.node.id,
-		To:        target,
-		Timestamp: time.Now().UnixNano(),
-		Payload:   req,
-	}
-
-	// Send via transport
-	if err := rh.node.transport.Send(ctx, target, msg); err != nil {
+	response, err := rh.node.call(ctx, target, internal.MessageTypeAppendEntries, &req)
+	if err != nil {
 		return internal.AppendEntriesResponse{}, fmt.Errorf("failed to send message: %w", err)
 	}
 
-	// TODO: Wait for response with timeout
-	// For now, return empty response
-	return internal.AppendEntriesResponse{}, nil
+	resp, ok := response.(*internal.AppendEntriesResponse)
+	if !ok {
+		return internal.AppendEntriesResponse{}, fmt.Errorf("unexpected response type %T", response)
+	}
+
+	return *resp, nil
 }
 
 // SendRequestVote sends RequestVote RPC to a peer.
@@ -215,23 +209,17 @@ func (rh *RPCHandler) SendRequestVote(ctx context.Context, target string, req in
 		forge.F("candidate", req.CandidateID),
 	)
 
-	// Create message
-	msg := internal.Message{
-		Type:      internal.MessageTypeRequestVote,
-		From:      rh.node.id,
-		To:        target,
-		Timestamp: time.Now().UnixNano(),
-		Payload:   req,
-	}
-
-	// Send via transport
-	if err := rh.node.transport.Send(ctx, target, msg); err != nil {
+	response, err := rh.node.call(ctx, target, internal.MessageTypeRequestVote, &req)
+	if err != nil {
 		return internal.RequestVoteResponse{}, fmt.Errorf("failed to send message: %w", err)
 	}
 
-	// TODO: Wait for response with timeout
-	// For now, return empty response
-	return internal.RequestVoteResponse{}, nil
+	resp, ok := response.(*internal.RequestVoteResponse)
+	if !ok {
+		return internal.RequestVoteResponse{}, fmt.Errorf("unexpected response type %T", response)
+	}
+
+	return *resp, nil
 }
 
 // SendInstallSnapshot sends InstallSnapshot RPC to a peer.
@@ -243,23 +231,17 @@ func (rh *RPCHandler) SendInstallSnapshot(ctx context.Context, target string, re
 		forge.F("data_size", len(req.Data)),
 	)
 
-	// Create message
-	msg := internal.Message{
-		Type:      internal.MessageTypeInstallSnapshot,
-		From:      rh.node.id,
-		To:        target,
-		Timestamp: time.Now().UnixNano(),
-		Payload:   req,
-	}
-
-	// Send via transport
-	if err := rh.node.transport.Send(ctx, target, msg); err != nil {
+	response, err := rh.node.call(ctx, target, internal.MessageTypeInstallSnapshot, &req)
+	if err != nil {
 		return internal.InstallSnapshotResponse{}, fmt.Errorf("failed to send message: %w", err)
 	}
 
-	// TODO: Wait for response with timeout
-	// For now, return empty response
-	return internal.InstallSnapshotResponse{}, nil
+	resp, ok := response.(*internal.InstallSnapshotResponse)
+	if !ok {
+		return internal.InstallSnapshotResponse{}, fmt.Errorf("unexpected response type %T", response)
+	}
+
+	return *resp, nil
 }
 
 // BroadcastAppendEntries broadcasts AppendEntries to all peers.

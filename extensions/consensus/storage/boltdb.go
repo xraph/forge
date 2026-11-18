@@ -16,6 +16,7 @@ import (
 type BoltDBStorage struct {
 	db         *bolt.DB
 	path       string
+	options    bolt.Options
 	bucketName []byte
 	logger     forge.Logger
 	started    bool
@@ -26,11 +27,18 @@ type BoltDBStorage struct {
 type BoltDBStorageConfig struct {
 	Path       string
 	BucketName string
-	Timeout    time.Duration
+	// Timeout is how long Start waits for the file lock held by another
+	// process. Defaults to one second.
+	Timeout time.Duration
+	// NoSync skips fsync after each commit. It is faster but a crash can lose
+	// writes the node already acknowledged, which breaks Raft's durability
+	// guarantees. Leave it false outside tests.
 	NoSync     bool
 	NoGrowSync bool
-	ReadOnly   bool
-	MmapFlags  int
+	// ReadOnly opens the database without write access. The bucket must
+	// already exist.
+	ReadOnly  bool
+	MmapFlags int
 }
 
 // NewBoltDBStorage creates a new BoltDB storage.
@@ -43,8 +51,19 @@ func NewBoltDBStorage(config BoltDBStorageConfig, logger forge.Logger) (*BoltDBS
 		config.BucketName = "consensus"
 	}
 
+	if config.Timeout <= 0 {
+		config.Timeout = time.Second
+	}
+
 	return &BoltDBStorage{
-		path:       config.Path,
+		path: config.Path,
+		options: bolt.Options{
+			Timeout:    config.Timeout,
+			NoSync:     config.NoSync,
+			NoGrowSync: config.NoGrowSync,
+			ReadOnly:   config.ReadOnly,
+			MmapFlags:  config.MmapFlags,
+		},
 		bucketName: []byte(config.BucketName),
 		logger:     logger,
 	}, nil
@@ -60,11 +79,31 @@ func (bs *BoltDBStorage) Start(ctx context.Context) error {
 	}
 
 	// Open database
-	db, err := bolt.Open(bs.path, 0600, &bolt.Options{
-		Timeout: 1 * time.Second,
-	})
+	options := bs.options
+
+	db, err := bolt.Open(bs.path, 0o600, &options)
 	if err != nil {
 		return fmt.Errorf("failed to open boltdb database: %w", err)
+	}
+
+	if options.ReadOnly {
+		err = db.View(func(tx *bolt.Tx) error {
+			if tx.Bucket(bs.bucketName) == nil {
+				return fmt.Errorf("bucket %q does not exist", bs.bucketName)
+			}
+
+			return nil
+		})
+		if err != nil {
+			db.Close()
+
+			return fmt.Errorf("failed to open read-only boltdb database: %w", err)
+		}
+
+		bs.db = db
+		bs.started = true
+
+		return nil
 	}
 
 	// Create bucket if not exists
@@ -331,3 +370,17 @@ func hasPrefix(s, prefix []byte) bool {
 
 	return true
 }
+
+// Batch applies ops atomically. It lets BoltDBStorage satisfy internal.Storage, which
+// the Raft log needs for truncation and batched appends.
+func (bs *BoltDBStorage) Batch(ops []internal.BatchOp) error {
+	return bs.WriteBatch(ops)
+}
+
+// Close closes the database. It is Stop without a context, as internal.Storage
+// requires.
+func (bs *BoltDBStorage) Close() error {
+	return bs.Stop(context.Background())
+}
+
+var _ internal.Storage = (*BoltDBStorage)(nil)

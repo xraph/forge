@@ -21,36 +21,39 @@ The option helpers are on the [configuration page](/docs/extensions/consensus/co
 | Method | Returns |
 |---|---|
 | `Service() *Service` | The consensus service |
-| `IsLeader() bool` | Always `false` today |
-| `GetLeader() string` | Always `""` today |
-| `GetRole() NodeRole` | Always `RoleFollower` today |
-| `GetStats() ConsensusStats` | Mostly zero today |
-| `GetClusterInfo() ClusterInfo` | Empty today |
-| `Apply(ctx, cmd Command) error` | Always a not-leader error today |
-| `Read(ctx, query any) (any, error)` | Panics today, because the state machine is nil |
+| `IsLeader() bool`, `GetLeader() string`, `GetRole() NodeRole` | Leadership state of this node |
+| `GetStats() ConsensusStats` | Live numbers from the Raft node |
+| `GetClusterInfo() ClusterInfo` | The members of the current configuration and the leader |
+| `Apply(ctx, cmd Command) error` | Writes through the leader. A not-leader error elsewhere |
+| `Read(ctx, query any) (any, error)` | Queries this node's state machine |
 | `Metrics() map[string]any` | The stats as a flat map |
 | `Reload(ctx) error` | Reloads config, see [hot reload](/docs/extensions/consensus/configuration#hot-reload) |
-| `Health(ctx) error` | `storage not initialized` today |
+| `Health(ctx) error` | The service's `HealthCheck` |
 
 ## Service
 
-`*consensus.Service` is the extension's `ConsensusService`. `NewConsensusService(config Config, logger forge.Logger, metrics forge.Metrics) (*Service, error)` builds one on its own, with the same stubbed components.
+`*consensus.Service` is the extension's `ConsensusService`. `NewConsensusService(config Config, logger forge.Logger, metrics forge.Metrics) (*Service, error)` builds one on its own. It returns an error wrapping `ErrInvalidConfig` for settings it can't honour: storage `pebble` or `postgres`, or a discovery type other than `static`.
 
-| Method | What it does today |
+| Method | What it does |
 |---|---|
-| `Start(ctx) error` | Logs each component it would initialise, starts the health, metrics and snapshot loops. A second call returns `ErrAlreadyStarted` |
-| `Stop(ctx) error` | Stops the loops |
-| `IsLeader() bool`, `GetLeader() string`, `GetRole() NodeRole`, `GetTerm() uint64` | `false`, `""`, `RoleFollower`, `0` |
-| `Apply(ctx, cmd Command) error` | Not-leader error |
-| `Read(ctx, query any) (any, error)` | Panics on the nil state machine |
-| `Snapshot(ctx) error` | Panics on the nil state machine |
-| `AddNode(ctx, nodeID, address string, port int) error`, `RemoveNode(ctx, nodeID string) error` | Not-leader error |
-| `TransferLeadership(ctx, targetNodeID string) error`, `StepDown(ctx) error` | Not-leader error. Not implemented past that check |
-| `GetStats() ConsensusStats`, `GetClusterInfo() ClusterInfo` | Stats and membership, mostly zero |
-| `HealthCheck(ctx) error` | `storage not initialized` once started, `ErrNotStarted` before |
-| `GetHealthStatus(ctx) HealthStatus` | Per-check details, unhealthy today |
+| `Start(ctx) error` | Builds and starts storage, the transport, the state machine and the Raft node, then the health and metrics loops. A second call returns `ErrAlreadyStarted` |
+| `Stop(ctx) error` | Stops the loops, the Raft node, the transport and storage |
+| `IsLeader() bool`, `GetLeader() string`, `GetRole() NodeRole`, `GetTerm() uint64` | The Raft node's current state |
+| `Apply(ctx, cmd Command) error` | On the leader, sends `cmd` as JSON through the log and returns once it is committed and applied. A not-leader error elsewhere, `raft.ErrProposalDropped` if a leadership change dropped it |
+| `Read(ctx, query any) (any, error)` | Queries this node's state machine. Not linearizable |
+| `Snapshot(ctx) error` | Snapshots the state machine and compacts the log |
+| `AddNode(ctx, nodeID, address string, port int) error` | On the leader, adds a server started with `join`, as a learner and then a voter |
+| `RemoveNode(ctx, nodeID string) error` | On the leader, removes a server, the leader included |
+| `TransferLeadership(ctx, targetNodeID string) error` | On the leader, hands leadership to a voter, or fails with `raft.ErrLeadershipTransferFailed` |
+| `StepDown(ctx) error` | The leader returns to follower |
+| `ReencryptStorage() (int, error)` | Rewrites stored values that aren't under the active encryption key and returns how many. `ErrStorageNotEncrypted` without encryption |
+| `GetStats() ConsensusStats`, `GetClusterInfo() ClusterInfo` | Stats and membership |
+| `HealthCheck(ctx) error` | `nil` while the node has quorum, `no quorum` otherwise, `ErrNotStarted` before `Start` |
+| `GetHealthStatus(ctx) HealthStatus` | Per-check details |
 | `UpdateConfig(ctx, config Config) error` | Validates, then copies the `observability`, `health` and `admin_api` sections |
-| `GetRaftNode()`, `GetStateMachine()`, `GetClusterManager()`, `GetTransport()`, `GetDiscovery()`, `GetStorage()` | `nil` |
+| `GetRaftNode()`, `GetStateMachine()`, `GetTransport()`, `GetStorage()` | The running components, `nil` before `Start` |
+| `GetClusterManager()` | A `ClusterManager` backed by the Raft configuration. `UpdateNode` on it returns an error |
+| `GetDiscovery()` | `nil`. The service doesn't run a discovery backend |
 
 ## LeadershipChecker
 
@@ -81,6 +84,7 @@ The option helpers are on the [configuration page](/docs/extensions/consensus/co
 | `LogEntry` | `Index`, `Term`, `Type EntryType`, `Data []byte`, `Created` |
 | `Snapshot` | `Index`, `Term`, `Data []byte`, `Size`, `Created`, `Checksum` |
 | `PeerConfig` | `ID`, `Address`, `Port` |
+| What `raft.Node.Configuration()` returns | `Members`, each with `ID`, `Address`, `Port` and `Voter`. The type lives in the module's `internal` package and isn't re-exported, so you can use the value but not name its type |
 | `ClusterInfo` | `ID`, `Leader`, `Term`, `Nodes []NodeInfo`, `TotalNodes`, `ActiveNodes`, `HasQuorum`, `CommitIndex`, `LastApplied` |
 | `NodeInfo` | `ID`, `Address`, `Port`, `Role`, `Status`, `Term`, `LastHeartbeat`, `Metadata` |
 | `HealthStatus` | `Healthy`, `Status`, `Leader`, `HasQuorum`, `TotalNodes`, `ActiveNodes`, `Details []HealthCheck`, `LastCheck`, `Checks` |
@@ -95,7 +99,7 @@ The option helpers are on the [configuration page](/docs/extensions/consensus/co
 | `NodeRole` | `RoleFollower`, `RoleCandidate`, `RoleLeader` (`"follower"`, `"candidate"`, `"leader"`) |
 | `NodeStatus` | `StatusActive`, `StatusInactive`, `StatusSuspected`, `StatusFailed` |
 | `EntryType` | `EntryNormal`, `EntryConfig`, `EntryBarrier`, `EntryNoop` |
-| `MessageType` | `MessageTypeAppendEntries`, `MessageTypeRequestVote`, `MessageTypeInstallSnapshot`, `MessageTypeHeartbeat` |
+| `MessageType` | `MessageTypeAppendEntries`, `MessageTypeRequestVote`, `MessageTypeInstallSnapshot`, `MessageTypeTimeoutNow`, their `...Response` counterparts, and `MessageTypeHeartbeat` |
 | `NodeChangeType` | `NodeChangeTypeAdded`, `NodeChangeTypeRemoved`, `NodeChangeTypeUpdated` |
 | `BatchOpType` | `BatchOpSet`, `BatchOpDelete` |
 | Container names | `ServiceKey` (`consensus`), `ServiceKeyLegacy` (`consensus:service`), `ClusterManagerKey`, `RaftNodeKey`, `StateMachineKey`, `LeadershipCheckerKey` |
@@ -104,7 +108,7 @@ The event types (`ConsensusEventNodeStarted` and 32 more, each a `consensus.*` s
 
 ## Errors
 
-The sentinels and helpers are listed on the [features page](/docs/extensions/consensus/features#errors).
+The sentinels and helpers are listed on the [features page](/docs/extensions/consensus/features#errors), including the `raft`, `storage` and `transport` ones: `raft.ErrProposalDropped`, `raft.ErrConfigChangeInProgress`, `raft.ErrLeadershipTransferInProgress`, `raft.ErrLeadershipTransferFailed`, `raft.ErrLearnerNotCaughtUp`, the `storage` encryption errors, `transport.ErrProtocolVersion` and `transport.ErrMessageTooLarge`.
 
 | Function | Description |
 |---|---|
@@ -120,14 +124,16 @@ The sentinels and helpers are listed on the [features page](/docs/extensions/con
 
 | Package | Constructors |
 |---|---|
-| `raft` | `NewNode(config, logger, stateMachine, transport, storage) (*Node, error)`, `DefaultConfig()` |
+| `raft` | `NewNode(config, logger, stateMachine, transport, storage) (*Node, error)`, `DefaultConfig()`. `*Node` has `AddPeer`, `AddPeerAddress`, `AddNode`, `RemoveNode`, `TransferLeadership`, `StepDown`, `Configuration`, `Snapshot`, `Peers`, `HasQuorum` and the `RaftNode` methods |
 | `storage` | `NewMemoryStorage`, `NewBadgerStorage`, `NewBoltDBStorage`, `NewWAL` |
-| `transport` | `NewLocalTransport`, `NewGRPCTransport`, `NewTCPTransport`, `NewHTTPTransport`, `NewTLSManager`, `NewConnectionPool`, the serializers |
+| `storage` (encryption) | `LoadKeyring(KeyringConfig, logger) (*Keyring, error)`, `NewKeyring(activeID, keys)`, `NewEncryptedStorage(inner, EncryptedStorageConfig, logger)` with `Rekey()` and `Keyring()`, `NewPlaintextGuard(inner)`, `MigrateToEncrypted(inner, keyring)`, `MigrateToPlaintext(inner, keyring)` |
+| `transport` | `NewLocalTransport`, `NewTCPTransport`, `NewHTTPTransport`, `NewGRPCTransport`, `NewTLSManager`, `MTLSConfig`, `DefaultTLSConfig`, `NewConnectionPool`, the serializers |
 | `statemachine` | `NewMemoryStateMachine`, `NewPersistentStateMachine`, `NewApplyManager` |
 | `discovery` | `NewStaticDiscovery`, `NewDNSDiscovery`, `NewConsulDiscovery`, `NewEtcdDiscovery`, `NewKubernetesDiscovery`, `NewRegistry` |
 | `cluster` | `NewManager`, `NewMembershipManager`, `NewQuorumManager`, `NewTopologyManager`, `NewRebalanceManager` |
 | `middleware` | `NewLeadershipMiddleware`, `NewQuorumMiddleware`, `NewMetricsMiddleware`, `NewReadOnlyMiddleware`, `NewRedirectMiddleware`, `NewConsistencyMiddleware` |
-| `admin` | `NewAPI(service, healthChecker, metricsCollector, logger)` with `RegisterRoutes(router, prefix)` |
+| `admin` | `NewAPI(service, healthChecker, metricsCollector, logger, opts ...Option)` with `WithAPIKey(key)`, `NewAPIFromConfig(service, healthChecker, metricsCollector, logger, AdminAPIConfig)`, and `RegisterRoutes(router, prefix)` |
+| `security` | `APIKeyMiddleware(key) forge.Middleware`, plus `NewAuthManager` and `NewTLSManager` |
 | `api` | `NewClusterAPI`, `NewConfigAPI`, `NewNodeAPI`, `NewStatsAPI` |
 | `observability` | `NewHealthChecker`, `NewMetricsCollector`, `NewLogManager`, `NewAlertManager` |
 

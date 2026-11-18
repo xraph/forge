@@ -2,28 +2,28 @@
 
 ## Purpose
 
-Raft consensus building blocks in Go: a Raft node with leader election, pre-vote, log
-replication and snapshots, plus storage, transports, discovery and state machines to build a
-node from. A Forge extension sits on top, but it does not wire those pieces together yet.
+Raft consensus building blocks in Go: a Raft node with leader election, log replication,
+snapshots, membership changes and leadership transfer, plus storage, transports, discovery and
+state machines to build a node from. There is no pre-vote round; raft.pre_vote has no effect.
+A Forge extension sits on top and runs a node from configuration.
 
-Read "Status" before you use any of it. Today the useful path is assembling `raft.Node`
-yourself on the in-process transport.
+Read "Status" before you use any of it.
 
 Module: github.com/xraph/forge/extensions/consensus (package `consensus`). Most root types and
 helpers are aliases over `consensus/internal` (exports.go).
 
 ## Status
 
-- `raft`: leader election and log replication work on the in-process transport. Three nodes
-  elect a leader and a proposed entry commits on a majority.
-- Followers advance their commit index but don't apply committed entries to their state
-  machine. Read from the leader.
-- `consensus.NewExtension`: validates config and registers services, but its storage,
-  transport, discovery, state machine and Raft node are never created (the init steps only log).
-- gRPC/TCP/HTTP transports, BadgerDB/BoltDB storage and the discovery backends compile, but
-  nothing in this repo runs a networked cluster on them.
-- `testing/` runs in-process clusters; `TestLogReplication` is skipped under `-short`, which is
-  how CI runs it.
+- `raft`: leader election, log replication and applying entries work over the in-process, TCP,
+  HTTP and gRPC transports (three node tests). Log, term and vote survive restarts. Followers behind the
+  leader's snapshot catch up through chunked InstallSnapshot.
+- `consensus.NewExtension` builds storage (badger, boltdb, memory), the tcp, http or grpc transport
+  (TLS/mTLS from security.*), a memory state machine and the Raft node from config.
+- Membership: single-server changes through the log (learner, then voter), leader removal, and
+  TransferLeadership (TimeoutNow). Config entries take effect on append and persist in snapshots.
+- Encryption at rest: security.enable_encryption seals every stored value (log, term, vote,
+  snapshots) with AES-256-GCM; keys from a file or env var, rotation via key IDs.
+- Not implemented: linearizable reads, non-static discovery in the extension.
 
 ## Packages and constructors
 
@@ -88,9 +88,10 @@ WithNodeID(id string)
 WithClusterID(id string)
 WithBindAddress(addr string, port int)
 WithPeers(peers []PeerConfig)              // PeerConfig{ID, Address string; Port int}
-WithTransportType(transportType string)    // grpc, tcp
+WithJoin(join bool)                        // wait to be added with AddNode instead of bootstrapping
+WithTransportType(transportType string)    // tcp, http, grpc
 WithDiscoveryType(discoveryType string)    // static, dns, consul, etcd, kubernetes
-WithStorageType(storageType string)        // badger, boltdb, pebble, postgres
+WithStorageType(storageType string)        // badger, boltdb, memory (pebble, postgres not implemented)
 WithStoragePath(path string)
 WithTLS(certFile, keyFile string)
 WithMTLS(caFile string)
@@ -99,24 +100,31 @@ WithRequireConfig(require bool)
 ```
 
 Container entries: `*consensus.Service` (aliases `consensus`, `consensus:service`),
-`ClusterManager` (`consensus:cluster`), `RaftNode` (`consensus:raft`), `StateMachine`
-(`consensus:statemachine`), `*LeadershipChecker` (`consensus:leadership`). Because the
-components are never built, the RaftNode and StateMachine entries are nil.
+`ClusterManager` (`consensus:cluster`, backed by the raft configuration), `RaftNode`
+(`consensus:raft`), `StateMachine` (`consensus:statemachine`), `*LeadershipChecker`
+(`consensus:leadership`). RaftNode and StateMachine are created by Start. Resolving `*Service` from the
+container after start fails with "consensus service already started" (the container starts it
+again), and these entries resolve through it, so use `Service().GetRaftNode()`,
+`GetStateMachine()` and `GetClusterManager()` instead.
 
-What you get from the service today: `Apply` always returns ErrNotLeader; `Read` panics on the
-nil state machine; `HealthCheck` returns "storage not initialized" (and the health loop logs it every
-health.check_interval); GetRaftNode/GetStateMachine/GetStorage/GetTransport return nil;
-TransferLeadership and StepDown return "not yet implemented".
+Service: `Apply` commits through the leader (ErrNotLeader elsewhere); `Read` queries the local
+state machine; `Snapshot` compacts; `StepDown` works; AddNode (target started with join: true,
+added as learner then promoted), RemoveNode (leader included) and TransferLeadership work on the
+leader, one membership change at a time. NewConsensusService fails
+for pebble/postgres storage and non-static discovery.
+admin_api.enabled (default false) registers the admin routes on the app router.
 
 ## Config
 
 Key `extensions.consensus`, falling back to `consensus`. Options override the file. Validation
 at registration: node_id set (no default); cluster_id set ("default"); bind_port 1..65535
 (7000); raft.heartbeat_interval < election_timeout_min < election_timeout_max (1s, 5s, 10s);
-transport.type grpc or tcp ("grpc"); transport.max_message_size positive (4MB); discovery.type
+bind_addr ("127.0.0.1"); transport.type tcp, http or grpc ("tcp"); transport.max_message_size positive (4MB); discovery.type
 static/dns/consul/etcd/kubernetes ("static"); storage.type badger/boltdb/pebble/postgres
 ("badger") with storage.path ("./data/consensus"); TLS needs cert_file and key_file, mTLS needs
-ca_file.
+ca_file; enable_encryption needs one key source (see Encryption at rest); admin_api.enable_auth needs api_key.
+enable_tls serves and dials over TLS; enable_mtls also requires client certificates and checks
+each message's sender against its certificate (node ID as a DNS SAN in each node certificate).
 
 Other sections: election, health, observability, resilience, admin_api, events, advanced. Full
 keys and defaults in internal/config.go. The extension acts on: health.enabled and
@@ -124,14 +132,36 @@ health.check_interval, observability.metrics.enabled and collection_interval,
 advanced.enable_auto_snapshot with raft.snapshot_interval, and events.enabled (adds an `events`
 dependency and publishes start and stop events when an event bus is present).
 
+## Encryption at rest
+
+security.enable_encryption wraps the storage backend in storage.EncryptedStorage (any backend).
+Every value (log entries, currentTerm, votedFor, snapshot_<index>, snapshot_meta) is sealed with
+AES-256-GCM: version(1) | key ID(4, big endian) | random 96-bit nonce(12) | ciphertext | tag(16),
+33 bytes of overhead. GCM additional data = version + key ID + storage key, so moved, edited or
+re-labelled values fail with storage.ErrDecrypt. Storage keys stay plaintext (they only carry
+indexes; range scans keep working). Not covered: storage.NewWAL files (unused by the service),
+data in transit (use TLS/mTLS), key names chosen by your own state machine.
+Keys: 32 bytes. encryption_key_file (raw 32 bytes, 64 hex chars or base64) or
+encryption_key_env (hex or base64) is key ID 1; encryption_keys: [{id, file|env|value}] for
+rotation, active = encryption_active_key_id or the highest ID. Inline keys (encryption_key,
+value) need allow_inline_encryption_key. Keys load in Start; bad size or source fails with
+storage.ErrInvalidEncryptionKey; key material is never logged or put in errors.
+Start checks a per-key-ID encrypted check value under reserved keys (prefix 0x00): a wrong key
+fails with ErrWrongKey; encryption over a plaintext store fails with ErrPlaintextStore (set
+encryption_migrate_plaintext once to encrypt in place); plaintext over an encrypted store fails
+with ErrEncryptedStore (decrypt offline with storage.MigrateToPlaintext); an interrupted
+migration fails with ErrMigrationIncomplete until rerun. Service.ReencryptStorage() rewrites
+values under the active key while the node runs; after that old keys can be removed.
+
 ## Gotchas
 
-- advanced.enable_auto_snapshot is on by default; every raft.snapshot_interval (30m) the snapshot
-  call panics on the nil state machine and takes the process down. Set it to false if you add
-  the extension.
+- bind_addr defaults to 127.0.0.1. Set it explicitly for a cluster spanning hosts. It is also the
+  address recorded in membership entries, so other servers must be able to reach it.
+- peers only bootstrap the cluster. After the first membership change the log is the source of
+  truth; changing peers in config does nothing.
+- Migrating to or from encryption rewrites values in place; BoltDB free pages and Badger value
+  logs can keep old plaintext until compaction. Rebuild from an empty path if that matters.
 
 ## Not implemented yet
 
-- The extension's component wiring (storage, transport, discovery, state machine, Raft node).
-- The admin API under `admin_api`: turning it on only writes a log line.
-- Applying committed entries on followers.
+- Linearizable reads, and discovery other than the static peer list in the extension.

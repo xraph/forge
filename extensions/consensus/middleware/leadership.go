@@ -157,8 +157,8 @@ func (mm *MetricsMiddleware) AddConsensusHeaders(next func(forge.Context) error)
 		// Add consensus state to response headers
 		stats := mm.service.GetStats()
 
-		ctx.Response().Header().Set("X-Consensus-Node-ID", stats.NodeID)
-		ctx.Response().Header().Set("X-Consensus-Cluster-ID", stats.ClusterID)
+		ctx.Response().Header().Set("X-Consensus-Node-Id", stats.NodeID)
+		ctx.Response().Header().Set("X-Consensus-Cluster-Id", stats.ClusterID)
 		ctx.Response().Header().Set("X-Consensus-Term", strconv.FormatUint(stats.Term, 10))
 		ctx.Response().Header().Set("X-Consensus-Role", string(stats.Role))
 
@@ -171,7 +171,7 @@ func (mm *MetricsMiddleware) AddConsensusHeaders(next func(forge.Context) error)
 			ctx.Response().Header().Set("X-Consensus-Leader", "false")
 
 			if leaderID != "" {
-				ctx.Response().Header().Set("X-Consensus-Leader-ID", leaderID)
+				ctx.Response().Header().Set("X-Consensus-Leader-Id", leaderID)
 			}
 		}
 

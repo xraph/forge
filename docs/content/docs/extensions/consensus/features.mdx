@@ -1,47 +1,81 @@
 ---
 title: Features
-description: The Raft packages you build a node from, and what the extension does and doesn't do yet
+description: The Raft packages you build a node from, membership, leadership transfer, transports and encryption at rest
 ---
 
 import { Callout } from 'fumadocs-ui/components/callout';
 
 ## Packages
 
-You assemble a node from these packages yourself, the way the [quick start](/docs/extensions/consensus#quick-start) does. Most constructors take a config struct and a `forge.Logger`.
+You can assemble a node from these packages yourself, the way the [quick start](/docs/extensions/consensus#quick-start) does, or let the extension build one from config. Most constructors take a config struct and a `forge.Logger`.
 
 | Package | What's in it |
 |---|---|
-| `raft` | `raft.NewNode(config, logger, stateMachine, transport, storage)`, elections, pre-vote, replication, snapshots, `Propose`, `AddPeer` |
-| `storage` | `NewMemoryStorage`, `NewBadgerStorage`, `NewBoltDBStorage`, and a write-ahead log (`NewWAL`) |
-| `transport` | `NewLocalTransport` (in process), `NewGRPCTransport`, `NewTCPTransport`, `NewHTTPTransport`, TLS helpers and serializers |
+| `raft` | `raft.NewNode(config, logger, stateMachine, transport, storage)`, elections, replication, snapshots, membership changes, leadership transfer |
+| `storage` | `NewMemoryStorage`, `NewBadgerStorage`, `NewBoltDBStorage`, a write-ahead log (`NewWAL`), and `NewEncryptedStorage` with `LoadKeyring`, `MigrateToEncrypted` and `MigrateToPlaintext` for encryption at rest |
+| `transport` | `NewLocalTransport` (in process), `NewTCPTransport`, `NewHTTPTransport`, `NewGRPCTransport`, TLS helpers and serializers |
 | `statemachine` | `NewMemoryStateMachine` and `NewPersistentStateMachine` |
 | `discovery` | `NewStaticDiscovery`, `NewDNSDiscovery`, `NewConsulDiscovery`, `NewEtcdDiscovery`, `NewKubernetesDiscovery` |
 | `cluster` | Membership, quorum and topology tracking with `cluster.NewManager` |
 | `middleware` | Checks for Forge handlers around leadership, quorum and read consistency |
-| `admin`, `api` | HTTP handlers for cluster status and management. Nothing mounts them for you |
+| `admin`, `api` | HTTP handlers for cluster status and management. The extension mounts the `admin` routes when `admin_api.enabled` is on |
 | `testing` | An in-process cluster harness and the cluster tests |
 
-Only the in-process transport and memory storage have been run as a cluster in this repository. The networked transports, the BadgerDB and BoltDB backends and the discovery backends compile, but nothing here runs a cluster on them, and some of them don't fit the interfaces `raft.NewNode` takes yet. The sections below say which.
+Three node clusters on the in-process, TCP, HTTP and gRPC transports, with memory, BoltDB and BadgerDB storage, are covered by the module's tests. The discovery backends aren't wired into the extension, and some of them don't fit the module's `Discovery` interface. The sections below say which.
 
 ## Raft nodes
 
-`raft.NewNode` takes a `raft.Config`, a logger, and your state machine, transport and storage. `raft.DefaultConfig()` gives you the timings from the Raft paper: a 50ms heartbeat and a 150ms to 300ms election timeout, with pre-vote and quorum checks on. If you build a `raft.Config` literal instead, zero timings fall back to a 1s heartbeat and a 5s to 10s election timeout.
+`raft.NewNode` takes a `raft.Config`, a logger, and your state machine, transport and storage. `raft.DefaultConfig()` gives you the timings from the Raft paper: a 50ms heartbeat and a 150ms to 300ms election timeout. If you build a `raft.Config` literal instead, zero timings fall back to a 1s heartbeat and a 5s to 10s election timeout.
 
-How an election works: every node starts as a follower with a random election timeout between `ElectionTimeoutMin` and `ElectionTimeoutMax`. A follower that hears no heartbeat in that window becomes a candidate, runs a pre-vote if `PreVoteEnabled` is on, then asks its peers for votes. The node with a majority becomes leader and sends heartbeats every `HeartbeatInterval`. A new leader writes a no-op entry first, which is why the quick start's `set` lands at index 2.
+How an election works: every node starts as a follower with a random election timeout between `ElectionTimeoutMin` and `ElectionTimeoutMax`. A voter that hears no heartbeat in that window becomes a candidate and asks the other voters for votes. The node with a majority becomes leader and sends heartbeats every `HeartbeatInterval`. A new leader writes a no-op entry first, which is why the quick start's `set` lands at index 2.
+
+There's no pre-vote round. `PreVoteEnabled` is carried on vote requests but nothing acts on it. What stops a server that was cut off from forcing an election when it comes back is simpler: a voter ignores vote requests, without even adopting their term, while it has heard from a live leader within the minimum election timeout, and it ignores vote requests from servers that aren't voters in its configuration.
 
 | Method on `*raft.Node` | What it does |
 |---|---|
 | `Start(ctx)`, `Stop(ctx)` | Run and stop the node |
-| `AddPeer(peerID string)` | Registers a peer ID. Call it before `Start`, and connect the transport to that peer separately |
+| `AddPeer(peerID string)`, `AddPeerAddress(peerID, address string, port int)` | Add a voter to the first membership of a new cluster. Call them before `Start`. `AddPeerAddress` also records the address, so servers added later can reach this member. Both are ignored once the log or a snapshot holds a membership |
 | `IsLeader()`, `GetLeader()`, `GetRole()`, `GetTerm()` | Leadership state |
-| `Propose(ctx, command []byte)` | Appends a command on the leader and returns once a majority has it. On a follower it returns a not-leader error naming the leader |
-| `Apply(ctx, entry LogEntry)` | Appends a prepared log entry on the leader and waits for it to commit |
+| `Propose(ctx, command []byte)` | Appends a command on the leader and returns once it is committed and applied. On a follower it returns a not-leader error naming the leader. If a leadership change drops the entry before it commits, it returns `raft.ErrProposalDropped` and you can retry |
+| `Apply(ctx, entry LogEntry)` | The same for a prepared log entry. Configuration entries are refused; use `AddNode` and `RemoveNode` |
 | `GetCommitIndex()`, `GetStats()` | Progress and a `RaftStats` snapshot |
-| `AddNode(ctx, id, address, port)`, `RemoveNode(ctx, id)` | Membership changes, leader only. Not working yet: the goroutine that processes them is never started, so both block until your context ends |
-| `StepDown(ctx)` | The leader steps down |
-| `TransferLeadership(ctx, target)` | Steps down and lets the next election decide. It doesn't hand leadership to `target` yet |
+| `Configuration()` | The current membership: each member's ID, address, port and whether it votes |
+| `AddNode(ctx, id, address, port)`, `RemoveNode(ctx, id)` | Membership changes, on the leader. See [membership changes](#membership-changes) |
+| `TransferLeadership(ctx, target)` | Hands leadership to `target`. See [leadership transfer](#leadership-transfer) |
+| `StepDown(ctx)` | The leader returns to follower and an election picks the next one |
+| `Snapshot()` | Snapshots the state machine and compacts the log |
+| `Peers()`, `HasQuorum()` | What this node knows about the other members, and whether it's in touch with a majority |
 
-Followers advance their commit index but don't apply committed entries to their state machine, so a read from a follower's state machine stays empty. Read from the leader.
+Followers apply committed entries to their own state machine too, usually a heartbeat after the leader. Reads from a follower can lag the leader, and there are no linearizable reads.
+
+The node persists every entry, its term and its vote before it answers, and reloads them on restart. A follower that couldn't write an entry rejects the request instead of acknowledging it.
+
+## Membership changes
+
+Membership changes one server at a time, through configuration entries in the log, as in section 4.1 of the Raft dissertation. A configuration takes effect on every node as soon as its entry is appended, and only one change can be in flight: a second one returns `raft.ErrConfigChangeInProgress` until the first has committed.
+
+To add a server:
+
+1. Start it with `Join: true` in its `raft.Config` (or `join: true` in the extension's config). A joining server never starts an election on its own. Give its transport routes to the existing members, which the extension does from its `peers`.
+2. Call `AddNode(ctx, id, address, port)` on the leader.
+
+`AddNode` first adds the server as a learner: it receives the log but doesn't vote or count towards a majority, so an empty server can't stall commits while it catches up. Once the learner holds every committed entry, a second entry promotes it to voter. If it hasn't caught up within your context or twenty election timeouts, it's removed again and `AddNode` returns `raft.ErrLearnerNotCaughtUp`.
+
+`RemoveNode(ctx, id)` removes a server. You can remove the leader itself: it keeps replicating without counting itself, then steps down once the new membership commits, and the remaining servers elect a leader. A removed server that never learned it was removed (because it was down at the time) can't disrupt the cluster when it comes back, because the members ignore vote requests from servers that aren't voters.
+
+Membership survives restarts and compaction: configuration entries live in the log, and the membership at a snapshot's index is stored with the snapshot and sent with `InstallSnapshot`. Once it's recorded, `AddPeer` and the extension's `peers` no longer change anything.
+
+On the extension, `Service.AddNode`, `RemoveNode` and `GetClusterManager()` (whose `AddNode` and `RemoveNode` go through the same log entries) do the same thing, as do the admin routes `POST /nodes/add` and `POST /nodes/remove`.
+
+## Leadership transfer
+
+`TransferLeadership(ctx, target)` hands leadership to a chosen voter, following section 3.10 of the Raft dissertation:
+
+1. The leader stops accepting writes and membership changes. They return `raft.ErrLeadershipTransferInProgress`.
+2. It brings `target`'s log up to date.
+3. It sends `target` a TimeoutNow message, and `target` starts an election at once. Voters grant that election even though they heard from the leader recently.
+
+If `target` hasn't taken over within an election timeout (it's down, say), the transfer is abandoned with `raft.ErrLeadershipTransferFailed` and the old leader carries on as before. `Service.TransferLeadership` and `POST /leadership/transfer` do the same.
 
 ## The memory state machine
 
@@ -53,7 +87,7 @@ Followers advance their commit index but don't apply committed entries to their 
 | `delete` | `key` | Removes `key` |
 | `increment` | `key` | Adds 1, starting from 1 when the key is missing |
 
-`Query` takes a `map[string]any` with a `type`: `get` (with a `key`), `list` (the whole map) or `size`.
+`Query` takes a `map[string]any` with a `type`: `get` (with a `key`), `list` (the whole map) or `size`. The extension always uses this state machine, and its `Service.Apply` sends your `Command` as JSON.
 
 `statemachine.NewPersistentStateMachine` stores state in a `consensus.Storage`, but it has `Get`, `CreateSnapshot` and `RestoreSnapshot` where the interface wants `Query`, `Snapshot` and `Restore`, so it doesn't implement `consensus.StateMachine` and `raft.NewNode` won't take it.
 
@@ -146,28 +180,62 @@ func (s *KVStore) Restore(snapshot *consensus.Snapshot) error {
 
 The extension has no way to take your state machine. Use it with your own `raft.Node`.
 
+An error from `Apply` doesn't stop the node: the entry is committed on every server, so the node records it as applied and returns your error to the caller waiting on that entry.
+
 ## Snapshots
 
-`raft.Config` has `SnapshotInterval`, `SnapshotThreshold` and `EnableSnapshots` (on in `raft.DefaultConfig()`, off in a `raft.Config` literal). With snapshots on, the node checks every `SnapshotInterval` and asks the state machine for a `Snapshot` when the log holds more than `SnapshotThreshold` entries. A node can receive an `InstallSnapshot` request, but no leader code sends one yet, so a follower that falls far behind isn't caught up from a snapshot.
+`raft.Config` has `SnapshotInterval`, `SnapshotThreshold` and `EnableSnapshots` (on in `raft.DefaultConfig()`, off in a `raft.Config` literal). With snapshots on, the node checks every `SnapshotInterval` and snapshots when its log holds more than `SnapshotThreshold` entries. You can also call `Snapshot()` on the node, or `Snapshot(ctx)` on the extension's service. A snapshot is taken at the last applied entry, stored with the membership at that point, and the log before it is dropped.
 
-<Callout type="warn">
-The extension's `Service.Snapshot` and its auto-snapshot loop call a state machine that is never created, so both panic. The loop is on by default and fires every `raft.snapshot_interval` (30 minutes), which takes your process down. Set `advanced.enable_auto_snapshot: false` in your config file if you register the extension.
-</Callout>
+A follower whose next entry is already in the leader's snapshot gets the snapshot through `InstallSnapshot`, in chunks of at most `SnapshotChunkSize` bytes (1 MiB by default; the extension uses half of `transport.max_message_size`). It restores its state machine from it and keeps any later entries that agree with it.
 
 ## Storage
 
-`raft.NewNode` takes a `consensus.Storage`: `Start`, `Stop`, `Set`, `Get`, `Delete`, `Batch`, `GetRange` and `Close`.
+`raft.NewNode` takes a `consensus.Storage`: `Start`, `Stop`, `Set`, `Get`, `Delete`, `Batch`, `GetRange` and `Close`. The memory, BadgerDB and BoltDB backends all implement it.
 
 | Backend | Constructor |
 |---|---|
 | In memory | `storage.NewMemoryStorage(storage.MemoryStorageConfig{}, logger)` |
-| BadgerDB | `storage.NewBadgerStorage(storage.BadgerStorageConfig{...}, logger)` |
-| BoltDB | `storage.NewBoltDBStorage(storage.BoltDBStorageConfig{...}, logger)` |
+| BadgerDB | `storage.NewBadgerStorage(storage.BadgerStorageConfig{Path: dir}, logger)` |
+| BoltDB | `storage.NewBoltDBStorage(storage.BoltDBStorageConfig{Path: file}, logger)` |
 | Write-ahead log | `storage.NewWAL(nodeID, storage.WALConfig{...}, logger)` |
 
-Only `MemoryStorage` implements `consensus.Storage` today. `BadgerStorage` and `BoltDBStorage` have `WriteBatch` where the interface wants `Batch`, and no `Close`, so `raft.NewNode` won't accept them until you wrap them in a small adapter.
+BadgerDB always writes synchronously. `BoltDBStorageConfig` takes `Timeout` (how long to wait for the file lock, 1s by default), `NoSync`, `NoGrowSync`, `ReadOnly` and `MmapFlags`. Leave `NoSync` off: with it on, a crash can lose writes the node already acknowledged.
 
-The extension's config validator also accepts `pebble` and `postgres` for `storage.type`, but there's no implementation of either in this module.
+The extension's config validator also accepts `pebble` and `postgres` for `storage.type`, but there's no implementation of either, so the service refuses them when it's created.
+
+## Encryption at rest
+
+Turn on `security.enable_encryption` and give the node a key, and everything it writes through its storage backend is encrypted before it reaches disk: the Raft log, the current term and vote, snapshots and the snapshot metadata. It works the same on `badger`, `boltdb` and `memory`.
+
+```yaml
+extensions:
+  consensus:
+    security:
+      enable_encryption: true
+      encryption_key_file: /etc/consensus/raft.key   # or encryption_key_env: RAFT_KEY
+```
+
+You can make a key with `openssl rand -hex 32 > raft.key && chmod 600 raft.key`. A key is 32 bytes (AES-256), and a file can hold the 32 raw bytes, 64 hex characters or base64 text. An environment variable holds hex or base64. The key is read when the service starts, and a key of the wrong size, a missing file or an unset variable stops `Start` with `storage.ErrInvalidEncryptionKey`. Errors name the source but never the key, and logs only show key IDs. Inline keys (`encryption_key`, or `value` in a list entry) are refused unless you set `allow_inline_encryption_key: true`.
+
+Each node encrypts its own disk, so each node can have its own key. Traffic between nodes isn't covered; use `enable_tls` or `enable_mtls` for that.
+
+Every stored value becomes a version byte, a 4 byte key ID, a 12 byte random nonce, the ciphertext and a 16 byte tag, so 33 bytes more than the plaintext. The version, key ID and storage key are authenticated too, so a value copied to another key or edited fails with `storage.ErrDecrypt` instead of being read. Storage keys themselves stay readable: someone with the disk can see names like `log_42` and `snapshot_meta`, and roughly how big each value is, but not the content. The write-ahead log in `storage.NewWAL` isn't encrypted; the extension doesn't use it.
+
+To rotate, list the keys with IDs. The highest ID (or `encryption_active_key_id`) encrypts new writes, and every listed key can still read:
+
+```yaml
+security:
+  enable_encryption: true
+  encryption_keys:
+    - {id: 1, file: /etc/consensus/raft-1.key}
+    - {id: 2, env: RAFT_KEY_2}
+```
+
+A single `encryption_key_file` or `encryption_key_env` counts as key ID 1. Restart the node with the new list, then call `Service.ReencryptStorage()` to rewrite everything still under the old key. It's safe while the node is serving. After that you can drop the old key. Never reuse an ID for a different key.
+
+The store keeps a small check value per key ID, so a wrong key fails at `Start` with `storage.ErrWrongKey`. Turning encryption on over a store that already holds plaintext fails with `storage.ErrPlaintextStore`, and starting without encryption over an encrypted store fails with `storage.ErrEncryptedStore`. To encrypt a node that already has data, start it once with `security.encryption_migrate_plaintext: true`. To go back, stop the node and run `storage.MigrateToPlaintext` on its started backend with the same keyring. An interrupted migration makes the next start fail with `storage.ErrMigrationIncomplete` until you run it again. Mind you, old plaintext can stay in BoltDB free pages or Badger value log files after a migration, until they're reused or compacted.
+
+When you build a node yourself, wrap the backend: load the keys with `storage.LoadKeyring`, then pass the backend and keyring to `storage.NewEncryptedStorage` and give the result to `raft.NewNode`.
 
 ## Transports
 
@@ -176,11 +244,17 @@ All four transports implement `consensus.Transport`: `Start`, `Stop`, `Send`, `R
 | Transport | Constructor |
 |---|---|
 | In process | `transport.NewLocalTransport`, connected to its peers with `Connect` |
-| gRPC | `transport.NewGRPCTransport` |
-| TCP | `transport.NewTCPTransport` |
-| HTTP | `transport.NewHTTPTransport` |
+| TCP | `transport.NewTCPTransport`. Length-prefixed frames on a connection per peer |
+| HTTP | `transport.NewHTTPTransport`. One POST to `/raft/message` per message |
+| gRPC | `transport.NewGRPCTransport`. One unary call per message |
 
-`transport.NewTLSManager` loads certificates, and `NewJSONSerializer`, `NewGobSerializer`, `NewProtobufSerializer` and `NewCompressedSerializer` encode messages. The extension's `transport.type` only accepts `grpc` and `tcp`.
+The three network transports carry the same versioned JSON envelope. A message from a peer on another protocol version is refused with `transport.ErrProtocolVersion`, and one larger than `MaxMessageSize` (4 MiB by default) with `transport.ErrMessageTooLarge`. They listen on `127.0.0.1` unless you give them an address, cap inbound connections with `MaxConnections`, and close connections that sit idle too long.
+
+The gRPC transport sends each message to `forge.consensus.raft.v1.Transport/Send` with a raw bytes codec, so there's no protoc step or generated code. It keeps one connection per peer, uses `MaxMessageSize` as the gRPC send and receive limit, and pings idle connections every `KeepAliveTime`. Refusals come back as gRPC statuses, which `Send` turns into the errors above or a permission error.
+
+For TLS, build a config with `transport.NewTLSManager(...).GetTLSConfig()` and pass it as `TLSConfig`. With `RequirePeerIdentity` on, the transport needs mutual TLS, refuses any message whose sender isn't named in its client certificate, and checks that each peer it dials presents that peer's certificate. Each node's certificate must carry its node ID as a DNS subject alternative name. The extension sets this up from `security.enable_tls` and `enable_mtls`.
+
+`NewJSONSerializer`, `NewGobSerializer`, `NewProtobufSerializer` and `NewCompressedSerializer` are there too, but the transports don't use them.
 
 ## Discovery
 
@@ -194,11 +268,11 @@ All four transports implement `consensus.Transport`: `Start`, `Stop`, `Send`, `R
 | etcd | `discovery.NewEtcdDiscovery` |
 | Kubernetes | `discovery.NewKubernetesDiscovery` |
 
+The extension only uses `static`: its first members come from `peers`, and any other `discovery.type` stops the service when it's created.
+
 ## Leadership checker
 
-The extension registers a `*consensus.LeadershipChecker` over its service. `RequireLeader()` returns a not-leader error naming the leader, and `RequireQuorum()` returns `ErrNoQuorum` when the cluster has no quorum. `IsLeader()` and `GetLeader()` pass through to the service.
-
-Because the extension's node is never leader and has no cluster manager, `RequireLeader()` and `RequireQuorum()` always fail today. You can also build one yourself with `consensus.NewLeadershipChecker(service)`, but `*consensus.Service` is the only `ConsensusService` in the module.
+The extension registers a `*consensus.LeadershipChecker` over its service. `RequireLeader()` returns a not-leader error naming the leader, or `nil` on the leader, and `RequireQuorum()` returns `ErrNoQuorum` when this node isn't in touch with a majority. `IsLeader()` and `GetLeader()` pass through to the service. You can also build one yourself with `consensus.NewLeadershipChecker(service)`.
 
 ## Middleware
 
@@ -213,32 +287,33 @@ The `middleware` package has two kinds of helpers.
 | `RedirectMiddleware` | `NewRedirectMiddleware(raftNode, manager, logger)` | `Handle()`, `HandleWithAutoRedirect()`, `HandleWithForward()` |
 | `ConsistencyMiddleware` | `NewConsistencyMiddleware(raftNode, config, logger)` | `Handle()` |
 
-The first three wrap a `func(forge.Context) error`. The leadership and quorum checks answer 503 with a JSON body when they fail, and `AddConsensusHeaders` sets `X-Consensus-Node-ID`, `X-Consensus-Term`, `X-Consensus-Role`, `X-Consensus-Leader` and related headers. They take a `ConsensusService`, and the only one in the module is the extension's, which is never leader and has no quorum, so `RequireLeader` and `RequireQuorum` reject every request today.
+The first three wrap a `func(forge.Context) error` and take a `ConsensusService`, such as the extension's. The leadership and quorum checks answer 503 with a JSON body when they fail, and `AddConsensusHeaders` sets `X-Consensus-Node-Id`, `X-Consensus-Term`, `X-Consensus-Role`, `X-Consensus-Leader` and related headers.
 
-The other three take a `RaftNode`, so your own `*raft.Node` works with them. Their methods return a check function with no `next` parameter, and when a check fails they write the JSON error and return what `ctx.JSON` returns, which is `nil` once the response is written. Your code can't tell a rejection from a pass by the return value, so treat these as unfinished.
+The other three take a `RaftNode`. Their methods return a check function with no `next` parameter, and when a check fails they write the JSON error and return what `ctx.JSON` returns, which is `nil` once the response is written. Your code can't tell a rejection from a pass by the return value, so treat these as unfinished.
 
 ## Admin API
 
-<Callout type="warn">
-The extension doesn't mount an admin API. `admin_api.enabled` is on by default, and all it does is log "admin API enabled but not yet implemented".
-</Callout>
-
-The `admin` package has the handlers. `admin.NewAPI(service, healthChecker, metricsCollector, logger)` builds them and `RegisterRoutes(router, prefix)` mounts these under `prefix`:
+The `admin` package has handlers for status and management. The extension mounts them on your app's router under `admin_api.path_prefix` (`/consensus`) when `admin_api.enabled` is on, which it isn't by default:
 
 | Route | Handler |
 |---|---|
-| `GET /health`, `GET /health/detailed` | Health from the service, or from the health checker when you pass one |
-| `GET /status`, `GET /metrics`, `GET /leader`, `GET /nodes` | Stats, the metrics collector's metrics, leadership and membership |
+| `GET /health`, `GET /health/detailed` | Health from the service |
+| `GET /status`, `GET /leader`, `GET /nodes` | Stats, leadership and membership |
+| `GET /metrics` | 404, because the extension mounts the routes without a metrics collector |
 | `POST /leadership/transfer`, `POST /leadership/stepdown` | Call `TransferLeadership` and `StepDown` |
 | `POST /snapshot` | Calls `Snapshot` |
 | `POST /nodes/add`, `POST /nodes/remove` | Call `AddNode` and `RemoveNode` |
 | `POST /apply`, `POST /read` | Call `Apply` and `Read` |
 
-The handlers call a `ConsensusService`, and with the extension's service they report the stub state above: `/snapshot` and `/read` hit the nil state machine. The `api` package has more handler sets (`NewClusterAPI`, `NewConfigAPI`, `NewNodeAPI` and a stats API) built from `cluster` managers and a `RaftNode`. Nothing registers them either.
+<Callout type="warn">
+These routes can change membership and write to the replicated log. Whenever anyone else can reach your app's router, set `admin_api.enable_auth: true` and an `api_key`. Every route then needs `Authorization: Bearer <key>` or `X-Api-Key: <key>`, and anything else gets a 401. The key is compared in constant time, and `enable_auth` without an `api_key` fails validation.
+</Callout>
+
+If you mount the handlers yourself, use `admin.NewAPI(service, healthChecker, metricsCollector, logger, admin.WithAPIKey(key))` or `admin.NewAPIFromConfig(...)` with the extension's `AdminAPIConfig`, then `RegisterRoutes(router, prefix)`. The `api` package has more handler sets (`NewClusterAPI`, `NewConfigAPI`, `NewNodeAPI` and a stats API) built from `cluster` managers and a `RaftNode`. Nothing registers them.
 
 ## Statistics
 
-`Service.GetStats()` returns a `ConsensusStats` with `NodeID`, `ClusterID`, `Role`, `Status`, `Term`, `LeaderID`, `CommitIndex`, `LastApplied`, `LastLogIndex`, `LastLogTerm`, `ClusterSize`, `HealthyNodes`, `HasQuorum`, `ElectionsTotal`, `ElectionsFailed`, `OperationsTotal`, `OperationsFailed`, `OperationsPerSec`, `AverageLatencyMs`, `ErrorRate`, `LogEntries`, `SnapshotsTotal`, `LastSnapshotTime`, `Uptime` and `StartTime`. On the extension's service most of these stay at zero.
+`Service.GetStats()` returns a `ConsensusStats` with `NodeID`, `ClusterID`, `Role`, `Status`, `Term`, `LeaderID`, `CommitIndex`, `LastApplied`, `LastLogIndex`, `LastLogTerm`, `ClusterSize`, `HealthyNodes`, `HasQuorum`, `ElectionsTotal`, `ElectionsFailed`, `OperationsTotal`, `OperationsFailed`, `OperationsPerSec`, `AverageLatencyMs`, `ErrorRate`, `LogEntries`, `SnapshotsTotal`, `LastSnapshotTime`, `Uptime` and `StartTime`. The Raft fields and the cluster counts come from the running node. `ElectionsTotal`, `ElectionsFailed`, `AverageLatencyMs` and `LogEntries` aren't filled in.
 
 The extension also implements `Metrics()` with a map of the same numbers. The service is created without a metrics sink, so the metrics collection loop it runs every `observability.metrics.collection_interval` records nothing.
 
@@ -260,6 +335,22 @@ The root package re-exports these sentinels. Each is a `*errors.ForgeError` with
 | `ErrElectionTimeout` | Election timed out |
 | `ErrInvalidPeer`, `ErrPeerExists`, `ErrPeerNotFound`, `ErrInsufficientPeers` | Peer problems |
 | `ErrInvalidConfig` | Config validation failed |
+
+The `raft`, `storage` and `transport` packages have their own sentinels, created with `errors.New`. Check them with `errors.Is` too.
+
+| Error | Meaning |
+|---|---|
+| `raft.ErrProposalDropped` | A leadership change removed the entry before it committed. It wasn't applied, so you can retry |
+| `raft.ErrConfigChangeInProgress` | Another membership change hasn't committed yet |
+| `raft.ErrLearnerNotCaughtUp` | `AddNode` gave up because the new server didn't catch up, and removed it again |
+| `raft.ErrLeadershipTransferInProgress` | The leader is handing over leadership and refuses writes and membership changes |
+| `raft.ErrLeadershipTransferFailed` | The transfer target didn't take over within an election timeout. The old leader keeps leading |
+| `storage.ErrInvalidEncryptionKey` | A key is missing, unreadable or not 32 bytes |
+| `storage.ErrWrongKey`, `storage.ErrUnknownKeyID`, `storage.ErrDecrypt` | The configured keys don't match the store, a value uses a key that isn't configured, or a value failed authentication |
+| `storage.ErrPlaintextStore`, `storage.ErrEncryptedStore` | Encryption is on over plaintext data, or off over encrypted data |
+| `storage.ErrMigrationIncomplete` | An encryption migration was interrupted. Run it again |
+| `consensus.ErrStorageNotEncrypted` | `ReencryptStorage` was called without encryption |
+| `transport.ErrProtocolVersion`, `transport.ErrMessageTooLarge` | A peer speaks another wire protocol version, or a message is over the size limit |
 
 | Helper | What it does |
 |---|---|

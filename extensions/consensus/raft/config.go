@@ -14,6 +14,17 @@ type Config struct {
 	NodeID    string `json:"node_id"    yaml:"node_id"`
 	ClusterID string `json:"cluster_id" yaml:"cluster_id"`
 
+	// Address and Port are where other members reach this node. They are
+	// recorded in configuration entries so servers added later can find it.
+	Address string `json:"address" yaml:"address"`
+	Port    int    `json:"port"    yaml:"port"`
+
+	// Join starts the node with an empty configuration: it never starts an
+	// election and waits for the leader to add it with AddNode. Use it for a
+	// server joining an existing cluster; a node that bootstraps with itself
+	// as a voter would disrupt the cluster it joins.
+	Join bool `json:"join" yaml:"join"`
+
 	// Timing parameters
 	ElectionTimeoutMin time.Duration `json:"election_timeout_min" yaml:"election_timeout_min"`
 	ElectionTimeoutMax time.Duration `json:"election_timeout_max" yaml:"election_timeout_max"`
@@ -26,6 +37,10 @@ type Config struct {
 	SnapshotInterval  time.Duration `json:"snapshot_interval"  yaml:"snapshot_interval"`
 	SnapshotThreshold uint64        `json:"snapshot_threshold" yaml:"snapshot_threshold"`
 	EnableSnapshots   bool          `json:"enable_snapshots"   yaml:"enable_snapshots"`
+	// SnapshotChunkSize is the most snapshot data sent in one InstallSnapshot
+	// message. Messages are JSON, which base64-encodes the data, so keep it
+	// under three quarters of the transport's MaxMessageSize. Defaults to 1 MiB.
+	SnapshotChunkSize int `json:"snapshot_chunk_size" yaml:"snapshot_chunk_size"`
 
 	// Replication configuration
 	MaxAppendEntries     int           `json:"max_append_entries"     yaml:"max_append_entries"`

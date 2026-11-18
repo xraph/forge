@@ -10,7 +10,13 @@ import (
 	"github.com/xraph/forge/extensions/consensus/internal"
 )
 
-// replicateToPeer replicates log entries to a single peer.
+// maxReplicationRounds bounds how many AppendEntries round trips one
+// replicateToPeer call makes before leaving the rest to the next heartbeat.
+const maxReplicationRounds = 64
+
+// replicateToPeer replicates log entries to a single peer. It keeps sending
+// while the peer is behind or rejected the last batch, so a lagging follower
+// catches up without waiting a heartbeat interval per batch.
 func (n *Node) replicateToPeer(peer *PeerState) {
 	// Try to acquire lock, skip if already replicating
 	if !peer.ReplicationMu.TryLock() {
@@ -18,430 +24,418 @@ func (n *Node) replicateToPeer(peer *PeerState) {
 	}
 	defer peer.ReplicationMu.Unlock()
 
-	// Read node state (release lock immediately)
-	n.mu.RLock()
-
-	if !n.IsLeader() {
-		n.mu.RUnlock()
-
-		return
-	}
-
-	currentTerm := n.currentTerm
-	commitIndex := n.commitIndex
-	nextIndex := n.nextIndex[peer.ID]
-	n.mu.RUnlock()
-
-	n.logger.Debug("replicating to peer",
-		forge.F("node_id", n.id),
-		forge.F("peer_id", peer.ID),
-		forge.F("next_index", nextIndex),
-		forge.F("commit_index", commitIndex),
-	)
-
-	// Get entries to send
-	prevLogIndex := nextIndex - 1
-	prevLogTerm := uint64(0)
-
-	if prevLogIndex > 0 {
-		entry, err := n.log.Get(prevLogIndex)
-		if err != nil {
-			// Previous entry might be in snapshot
-			n.logger.Debug("previous log entry not found, may need snapshot",
-				forge.F("peer", peer.ID),
-				forge.F("prev_index", prevLogIndex),
-			)
-			// TODO: Send snapshot if needed
+	for range maxReplicationRounds {
+		req, needSnapshot, ok := n.buildAppendEntries(peer)
+		if !ok {
 			return
 		}
 
-		prevLogTerm = entry.Term
+		if needSnapshot {
+			if !n.sendSnapshot(peer) {
+				return
+			}
+
+			continue
+		}
+
+		resp, err := n.sendAppendEntries(peer, req)
+		if err != nil {
+			n.logger.Debug("failed to send AppendEntries",
+				forge.F("peer", peer.ID),
+				forge.F("error", err),
+			)
+
+			return
+		}
+
+		// No locks held here: the handler may step down, which takes n.mu.
+		if !n.handleAppendEntriesResponse(peer, req, resp) {
+			return
+		}
+	}
+}
+
+// buildAppendEntries builds the next AppendEntries request for a peer from a
+// consistent view of the leader state. needSnapshot is true when the peer
+// needs entries that were compacted into the snapshot; ok is false when this
+// node is not the leader or nothing can be sent.
+func (n *Node) buildAppendEntries(peer *PeerState) (req *internal.AppendEntriesRequest, needSnapshot, ok bool) {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+
+	if n.GetRole() != internal.RoleLeader {
+		return nil, false, false
 	}
 
-	// Get entries to replicate
-	maxEntries := n.config.MaxAppendEntries
+	nextIndex := max(n.nextIndex[peer.ID], 1)
+	prevLogIndex := nextIndex - 1
 
-	entries, err := n.log.GetEntriesAfter(prevLogIndex, maxEntries)
+	if prevLogIndex < n.log.SnapshotIndex() {
+		return nil, true, true
+	}
+
+	prevLogTerm, found := n.log.Term(prevLogIndex)
+	if !found {
+		n.logger.Error("no log entry to anchor replication on",
+			forge.F("node_id", n.id),
+			forge.F("peer", peer.ID),
+			forge.F("prev_index", prevLogIndex),
+		)
+
+		return nil, false, false
+	}
+
+	entries, err := n.log.GetEntriesAfter(prevLogIndex, n.config.MaxAppendEntries)
 	if err != nil {
 		n.logger.Error("failed to get log entries",
 			forge.F("peer", peer.ID),
 			forge.F("error", err),
 		)
 
-		return
+		return nil, false, false
 	}
 
-	// Send AppendEntries RPC
-	req := &internal.AppendEntriesRequest{
-		Term:         currentTerm,
+	return &internal.AppendEntriesRequest{
+		Term:         n.currentTerm,
 		LeaderID:     n.id,
 		PrevLogIndex: prevLogIndex,
 		PrevLogTerm:  prevLogTerm,
 		Entries:      entries,
-		LeaderCommit: commitIndex,
+		LeaderCommit: n.commitIndex,
+	}, false, true
+}
+
+// sendSnapshot sends the latest snapshot to a peer whose next entry was
+// compacted away, in chunks of at most SnapshotChunkSize bytes, and advances
+// the peer's replication state once the peer has installed it. It reports
+// whether the peer accepted the snapshot.
+func (n *Node) sendSnapshot(peer *PeerState) bool {
+	n.mu.RLock()
+	term := n.currentTerm
+	index := n.log.SnapshotIndex()
+	snapshotTerm := n.log.SnapshotTerm()
+	leader := n.GetRole() == internal.RoleLeader
+	cfg := n.configAtLocked(index).Clone()
+	n.mu.RUnlock()
+
+	if !leader {
+		return false
 	}
 
-	resp, err := n.sendAppendEntries(peer, req)
+	data, err := n.storage.Get(fmt.Appendf(nil, "snapshot_%d", index))
 	if err != nil {
-		n.logger.Warn("failed to send AppendEntries",
+		n.logger.Error("cannot read snapshot to send to peer",
 			forge.F("peer", peer.ID),
+			forge.F("index", index),
 			forge.F("error", err),
 		)
 
-		return
+		return false
 	}
 
-	// Handle response (no locks held - handler may call stepDown which needs write lock)
-	n.handleAppendEntriesResponse(peer, req, resp)
+	n.logger.Info("sending snapshot to peer",
+		forge.F("peer", peer.ID),
+		forge.F("index", index),
+		forge.F("size", len(data)),
+	)
+
+	chunkSize := n.config.SnapshotChunkSize
+
+	for offset := 0; ; {
+		end := min(offset+chunkSize, len(data))
+		req := &internal.InstallSnapshotRequest{
+			Term:              term,
+			LeaderID:          n.id,
+			LastIncludedIndex: index,
+			LastIncludedTerm:  snapshotTerm,
+			Offset:            uint64(offset),
+			Data:              data[offset:end],
+			Done:              end == len(data),
+			Configuration:     &cfg,
+		}
+
+		ctx, cancel := context.WithTimeout(n.ctx, 10*time.Second)
+		response, err := n.call(ctx, peer.ID, internal.MessageTypeInstallSnapshot, req)
+
+		cancel()
+
+		if err != nil {
+			n.logger.Debug("failed to send snapshot chunk",
+				forge.F("peer", peer.ID),
+				forge.F("offset", offset),
+				forge.F("error", err),
+			)
+
+			return false
+		}
+
+		resp, ok := response.(*internal.InstallSnapshotResponse)
+		if !ok {
+			return false
+		}
+
+		if resp.Term > term {
+			n.stepDown(resp.Term)
+
+			return false
+		}
+
+		if !resp.Success {
+			n.logger.Warn("peer rejected snapshot chunk",
+				forge.F("peer", peer.ID),
+				forge.F("index", index),
+				forge.F("offset", offset),
+			)
+
+			return false
+		}
+
+		if req.Done {
+			break
+		}
+
+		offset = end
+	}
+
+	n.mu.Lock()
+	defer n.mu.Unlock()
+
+	if n.GetRole() != internal.RoleLeader || n.currentTerm != term {
+		return false
+	}
+
+	if index > n.matchIndex[peer.ID] {
+		n.matchIndex[peer.ID] = index
+	}
+
+	if n.nextIndex[peer.ID] < index+1 {
+		n.nextIndex[peer.ID] = index + 1
+	}
+
+	n.advanceCommitIndex()
+
+	return true
 }
 
-// sendAppendEntries sends an AppendEntries RPC to a peer.
+// sendAppendEntries sends an AppendEntries RPC to a peer and waits for the
+// response to this exact request.
 func (n *Node) sendAppendEntries(peer *PeerState, req *internal.AppendEntriesRequest) (*internal.AppendEntriesResponse, error) {
 	ctx, cancel := context.WithTimeout(n.ctx, 5*time.Second)
 	defer cancel()
 
-	// Generate unique request ID
-	requestID := fmt.Sprintf("append_entries_%s_%s", n.id, peer.ID)
-	responseCh := make(chan any, 1)
-
-	// Register pending request
-	n.requestMu.Lock()
-	n.pendingRequests[requestID] = responseCh
-	n.requestMu.Unlock()
-
-	msg := internal.Message{
-		Type:    internal.MessageTypeAppendEntries,
-		From:    n.id,
-		To:      peer.ID,
-		Payload: req,
-	}
-
-	// Send via transport
-	err := n.transport.Send(ctx, peer.ID, msg)
+	response, err := n.call(ctx, peer.ID, internal.MessageTypeAppendEntries, req)
 	if err != nil {
-		// Clean up
-		n.requestMu.Lock()
-		delete(n.pendingRequests, requestID)
-		n.requestMu.Unlock()
-
 		return nil, err
 	}
 
-	peer.LastContact = time.Now()
-
-	// Wait for response
-	select {
-	case response := <-responseCh:
-		// Clean up
-		n.requestMu.Lock()
-		delete(n.pendingRequests, requestID)
-		n.requestMu.Unlock()
-
-		if resp, ok := response.(*internal.AppendEntriesResponse); ok {
-			return resp, nil
-		}
-
+	resp, ok := response.(*internal.AppendEntriesResponse)
+	if !ok {
 		return nil, errors.New("invalid response type")
-
-	case <-ctx.Done():
-		// Clean up
-		n.requestMu.Lock()
-		delete(n.pendingRequests, requestID)
-		n.requestMu.Unlock()
-
-		return nil, ctx.Err()
 	}
+
+	n.peersLock.Lock()
+	peer.LastContact = time.Now()
+	n.peersLock.Unlock()
+
+	return resp, nil
 }
 
-// handleAppendEntriesResponse handles the response from an AppendEntries RPC.
-func (n *Node) handleAppendEntriesResponse(peer *PeerState, req *internal.AppendEntriesRequest, resp *internal.AppendEntriesResponse) {
+// handleAppendEntriesResponse applies a peer's answer to the request it was
+// sent for. It reports whether the peer should be sent another batch now.
+//
+// matchIndex only moves forward and is bounded by what the request actually
+// carried, and nextIndex only backs off when the rejected request is the one
+// nextIndex currently describes, so reordered or duplicated responses cannot
+// overstate replication or back off twice.
+func (n *Node) handleAppendEntriesResponse(peer *PeerState, req *internal.AppendEntriesRequest, resp *internal.AppendEntriesResponse) bool {
 	n.mu.Lock()
 	defer n.mu.Unlock()
-
-	// Check if we're still leader in the same term
-	if !n.IsLeader() || n.currentTerm != req.Term {
-		return
-	}
 
 	// If term in response is higher, step down
 	if resp.Term > n.currentTerm {
 		n.stepDownLocked(resp.Term)
 
-		return
+		return false
+	}
+
+	// Check if we're still leader in the same term
+	if n.GetRole() != internal.RoleLeader || n.currentTerm != req.Term {
+		return false
 	}
 
 	if resp.Success {
-		// Update nextIndex and matchIndex
-		if len(req.Entries) > 0 {
-			lastEntry := req.Entries[len(req.Entries)-1]
-			n.nextIndex[peer.ID] = lastEntry.Index + 1
-			n.matchIndex[peer.ID] = lastEntry.Index
+		sent := req.PrevLogIndex + uint64(len(req.Entries))
+
+		match := sent
+		if resp.MatchIndex != 0 && resp.MatchIndex < sent {
+			match = resp.MatchIndex
+		}
+
+		if match > n.matchIndex[peer.ID] {
+			n.matchIndex[peer.ID] = match
 
 			n.logger.Debug("successfully replicated to peer",
 				forge.F("peer", peer.ID),
-				forge.F("match_index", lastEntry.Index),
+				forge.F("match_index", match),
 			)
-
-			// Try to advance commit index
-			n.advanceCommitIndex()
-		}
-	} else {
-		// Replication failed, decrement nextIndex and retry
-		if n.nextIndex[peer.ID] > 1 {
-			n.nextIndex[peer.ID]--
 		}
 
-		n.logger.Debug("replication failed, decrementing nextIndex",
-			forge.F("peer", peer.ID),
-			forge.F("next_index", n.nextIndex[peer.ID]),
-		)
+		if n.nextIndex[peer.ID] < n.matchIndex[peer.ID]+1 {
+			n.nextIndex[peer.ID] = n.matchIndex[peer.ID] + 1
+		}
 
-		// Immediately retry
-		go n.replicateToPeer(peer)
+		n.advanceCommitIndex()
+
+		return n.nextIndex[peer.ID] <= n.log.LastIndex()
 	}
+
+	// Stale rejection for a request nextIndex has already moved past.
+	if n.nextIndex[peer.ID] != req.PrevLogIndex+1 {
+		return false
+	}
+
+	next := max(min(req.PrevLogIndex, resp.LastLogIndex+1), n.matchIndex[peer.ID]+1, 1)
+	n.nextIndex[peer.ID] = next
+
+	n.logger.Debug("replication rejected, backing off nextIndex",
+		forge.F("peer", peer.ID),
+		forge.F("next_index", next),
+	)
+
+	// Retry at once only if backing off changed what will be sent.
+	return next < req.PrevLogIndex+1
 }
 
 // AppendEntries handles an AppendEntries RPC from the leader.
 func (n *Node) AppendEntries(ctx context.Context, req *internal.AppendEntriesRequest) (*internal.AppendEntriesResponse, error) {
-	n.mu.Lock()
-	defer n.mu.Unlock()
+	resp := n.handleAppendEntries(*req)
 
-	resp := &internal.AppendEntriesResponse{
-		Term:    n.currentTerm,
-		Success: false,
-		NodeID:  n.id,
-	}
-
-	// Reply false if term < currentTerm
-	if req.Term < n.currentTerm {
-		return resp, nil
-	}
-
-	// Reset election timer since we heard from leader
-	n.resetElectionTimerUnsafe()
-
-	// If RPC term is higher, update our term and step down
-	if req.Term > n.currentTerm {
-		n.currentTerm = req.Term
-		n.votedFor = ""
-		n.persistStateOrLog("append entries from newer term")
-	}
-
-	// Step down to follower if we're not already
-	if n.GetRole() != internal.RoleFollower {
-		n.setRole(internal.RoleFollower)
-	}
-
-	// Update leader
-	if n.GetLeader() != req.LeaderID {
-		n.setLeader(req.LeaderID)
-	}
-
-	// Reply false if log doesn't contain an entry at prevLogIndex whose term matches prevLogTerm
-	if req.PrevLogIndex > 0 {
-		if !n.log.MatchesTerm(req.PrevLogIndex, req.PrevLogTerm) {
-			n.logger.Debug("log doesn't match at prevLogIndex",
-				forge.F("prev_index", req.PrevLogIndex),
-				forge.F("prev_term", req.PrevLogTerm),
-			)
-
-			return resp, nil
-		}
-	}
-
-	// If an existing entry conflicts with a new one (same index but different terms),
-	// delete the existing entry and all that follow it
-	for _, entry := range req.Entries {
-		existingEntry, err := n.log.Get(entry.Index)
-		if err == nil && existingEntry.Term != entry.Term {
-			// Conflict detected, truncate log
-			if err := n.log.TruncateAfter(entry.Index - 1); err != nil {
-				n.logger.Error("failed to truncate log",
-					forge.F("error", err),
-				)
-
-				return resp, nil
-			}
-
-			break
-		}
-	}
-
-	// Append any new entries not already in the log
-	for _, entry := range req.Entries {
-		_, err := n.log.Get(entry.Index)
-		if err != nil {
-			// Entry doesn't exist, append it
-			if err := n.log.Append(entry); err != nil {
-				n.logger.Error("failed to append entry",
-					forge.F("error", err),
-				)
-
-				return resp, nil
-			}
-		}
-	}
-
-	// Update commit index
-	if req.LeaderCommit > n.commitIndex {
-		lastNewIndex := n.log.LastIndex()
-		n.commitIndex = min(req.LeaderCommit, lastNewIndex)
-
-		n.logger.Debug("updated commit index",
-			forge.F("commit_index", n.commitIndex),
-		)
-
-		// Apply committed entries
-		go n.applyCommitted()
-	}
-
-	resp.Success = true
-	if len(req.Entries) > 0 {
-		resp.MatchIndex = req.Entries[len(req.Entries)-1].Index
-	}
-
-	n.appendCount.Add(1)
-
-	return resp, nil
+	return &resp, nil
 }
 
-// advanceCommitIndex tries to advance the commit index based on matchIndex of peers.
+// advanceCommitIndex moves commitIndex to the highest index stored on a
+// majority of the voting members whose entry is from the current term. The
+// leader counts itself only while it is a voter. Once a configuration that
+// removes the leader commits, the leader steps down. The caller holds n.mu.
 func (n *Node) advanceCommitIndex() {
-	// Find the highest index that a majority of nodes have replicated
+	if n.GetRole() != internal.RoleLeader {
+		return
+	}
+
+	others, selfVotes := n.votersLocked()
+	majority := quorumSize(len(others), selfVotes)
 	lastLogIndex := n.log.LastIndex()
+	newCommit := n.commitIndex
 
-	for n.commitIndex < lastLogIndex {
-		testIndex := n.commitIndex + 1
+	for index := lastLogIndex; index > n.commitIndex; index-- {
+		// Only entries from the current term are committed by counting
+		// replicas (§5.4.2); earlier ones commit with them.
+		term, ok := n.log.Term(index)
+		if !ok || term != n.currentTerm {
+			break
+		}
 
-		// Count how many nodes have replicated this index
-		replicated := 1 // Count self
+		replicated := 0
+		if selfVotes {
+			replicated++
+		}
 
-		for _, matchIndex := range n.matchIndex {
-			if matchIndex >= testIndex {
+		for _, id := range others {
+			if n.matchIndex[id] >= index {
 				replicated++
 			}
 		}
 
-		// Check if majority has replicated
-		majority := (len(n.peers)+1)/2 + 1
 		if replicated >= majority {
-			// Verify the entry is from current term (Raft safety requirement)
-			entry, err := n.log.Get(testIndex)
-			if err == nil && entry.Term == n.currentTerm {
-				n.commitIndex = testIndex
-				n.logger.Debug("advanced commit index",
-					forge.F("commit_index", n.commitIndex),
-					forge.F("replicated", replicated),
-					forge.F("majority", majority),
-				)
+			newCommit = index
 
-				// Apply committed entries
-				go n.applyCommitted()
-			} else {
-				break
-			}
-		} else {
 			break
 		}
 	}
+
+	if newCommit > n.commitIndex {
+		n.commitIndex = newCommit
+		n.logger.Debug("advanced commit index",
+			forge.F("commit_index", n.commitIndex),
+		)
+		n.signalApply()
+	}
+
+	latest := n.configs[len(n.configs)-1]
+	if !selfVotes && latest.index <= n.commitIndex {
+		n.logger.Info("stepping down: this leader is no longer a voting member",
+			forge.F("node_id", n.id),
+			forge.F("config_index", latest.index),
+		)
+		n.stepDownLocked(n.currentTerm)
+	}
 }
 
-// applyCommitted applies committed log entries to the state machine.
+// signalApply wakes the applier. The caller holds n.mu.
+func (n *Node) signalApply() {
+	select {
+	case n.applyNotify <- struct{}{}:
+	default:
+	}
+}
+
+// applyCommitted applies committed entries to the state machine in order. It
+// only runs on the applier goroutine, so each entry is applied exactly once.
+//
+// A state machine error for an entry is returned to the Apply call waiting for
+// it and does not stop the applier: the entry is committed on every node, and
+// stalling here would wedge the node for good.
 func (n *Node) applyCommitted() {
-	for {
-		n.mu.Lock()
+	for n.applyNext() {
+	}
+}
 
-		if n.lastApplied >= n.commitIndex {
-			n.mu.Unlock()
+// applyNext applies the next committed entry, if any, and reports whether it
+// did. It holds applyMu so snapshots never interleave with an apply.
+func (n *Node) applyNext() bool {
+	n.applyMu.Lock()
+	defer n.applyMu.Unlock()
 
-			return
-		}
+	n.mu.RLock()
 
-		// Apply next entry
-		applyIndex := n.lastApplied + 1
+	if n.lastApplied >= n.commitIndex {
+		n.mu.RUnlock()
 
-		entry, err := n.log.Get(applyIndex)
-		if err != nil {
-			n.logger.Error("failed to get log entry for apply",
-				forge.F("index", applyIndex),
-				forge.F("error", err),
-			)
-			n.mu.Unlock()
+		return false
+	}
 
-			return
-		}
+	applyIndex := n.lastApplied + 1
+	entry, err := n.log.Get(applyIndex)
+	n.mu.RUnlock()
 
-		n.mu.Unlock()
-
-		// Apply to state machine (outside lock)
-		if err := n.stateMachine.Apply(entry); err != nil {
-			n.logger.Error("failed to apply entry to state machine",
-				forge.F("index", applyIndex),
-				forge.F("error", err),
-			)
-
-			return
-		}
-
-		n.mu.Lock()
-		n.lastApplied = applyIndex
-		n.mu.Unlock()
-
-		n.logger.Debug("applied entry",
+	if err != nil {
+		n.logger.Error("failed to get committed log entry for apply",
 			forge.F("index", applyIndex),
-			forge.F("term", entry.Term),
-			forge.F("type", entry.Type),
+			forge.F("error", err),
 		)
 
-		// Notify any waiting Apply() calls
-		select {
-		case msg := <-n.applyCh:
-			if msg.Index == applyIndex {
-				msg.ResultCh <- nil
-			}
-		default:
-		}
+		return false
 	}
+
+	applyErr := n.stateMachine.Apply(entry)
+	if applyErr != nil {
+		n.logger.Error("state machine rejected committed entry",
+			forge.F("index", applyIndex),
+			forge.F("error", applyErr),
+		)
+	}
+
+	n.mu.Lock()
+	n.lastApplied = applyIndex
+	n.resolveAppliedLocked(applyIndex, entry.Term, applyErr)
+	n.mu.Unlock()
+
+	return true
 }
 
 // InstallSnapshot handles an InstallSnapshot RPC.
 func (n *Node) InstallSnapshot(ctx context.Context, req *internal.InstallSnapshotRequest) (*internal.InstallSnapshotResponse, error) {
-	n.mu.Lock()
-	defer n.mu.Unlock()
+	resp := n.handleInstallSnapshot(*req)
 
-	resp := &internal.InstallSnapshotResponse{
-		Term:   n.currentTerm,
-		NodeID: n.id,
-	}
-
-	// Reply immediately if term < currentTerm
-	if req.Term < n.currentTerm {
-		return resp, nil
-	}
-
-	// Reset election timer
-	n.resetElectionTimerUnsafe()
-
-	// If term is higher, update our term
-	if req.Term > n.currentTerm {
-		n.currentTerm = req.Term
-		n.votedFor = ""
-		n.persistStateOrLog("install snapshot from newer term")
-	}
-
-	// Update leader
-	if n.GetLeader() != req.LeaderID {
-		n.setLeader(req.LeaderID)
-	}
-
-	// TODO: Handle snapshot installation
-	// For now, just acknowledge receipt
-
-	n.logger.Info("received snapshot",
-		forge.F("leader", req.LeaderID),
-		forge.F("last_included_index", req.LastIncludedIndex),
-		forge.F("last_included_term", req.LastIncludedTerm),
-	)
-
-	return resp, nil
+	return &resp, nil
 }

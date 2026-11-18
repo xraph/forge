@@ -2,7 +2,7 @@
 
 This page gets you from nothing to a running Raft cluster with this module, and tells you plainly where the module stops today. Read the [status table in the README](README.md#status) alongside it.
 
-The short version: the `raft` package elects a leader and replicates a log across nodes that you assemble yourself, on the in-process transport. The Forge extension (`consensus.NewExtension`) loads and validates config, but it never builds the storage, transport, state machine or Raft node, so it can't run a cluster yet. There's no networked cluster, admin API or Prometheus endpoint to deploy, which is why this page has no Docker or Kubernetes section.
+The short version: you can assemble nodes yourself from the `raft`, `storage` and `transport` packages, or let the Forge extension (`consensus.NewExtension`) build one node per app from config. Either way you get leader election, a replicated log, snapshots, membership changes and leadership transfer, over the in-process, TCP, HTTP or gRPC transport. The module hasn't run a production cluster yet, and there's no Prometheus endpoint or deployment recipe, which is why this page has no Docker or Kubernetes section.
 
 ## Install
 
@@ -15,7 +15,7 @@ go get github.com/xraph/forge/extensions/consensus@latest
 
 ## Run a three-node cluster in one process
 
-Each node is a `raft.Node` built from a transport, log storage and a state machine. The in-process transport (`transport.NewLocalTransport`) is the one the module's own cluster tests use, and the one that works end to end. Save this as `main.go`:
+Each node is a `raft.Node` built from a transport, log storage and a state machine. This example uses the in-process transport (`transport.NewLocalTransport`) so it runs in one process with nothing to configure. Save this as `main.go`:
 
 ```go
 package main
@@ -135,10 +135,10 @@ node-3 commit index: 2
 
 Entry 1 is the no-op every new leader writes, and entry 2 is your `set`. A few things to know before you build on it:
 
-- Write through the leader. `Propose` on a follower returns a not-leader error that names the current leader, and `consensus.IsNotLeaderError(err)` recognises it.
-- Read from the leader too. Followers learn the commit index on the next heartbeat but don't apply committed entries to their own state machine yet, so the same `Query` on a follower returns `key not found`.
+- Write through the leader. `Propose` on a follower returns a not-leader error that names the current leader, and `consensus.IsNotLeaderError(err)` recognises it. If the leader loses its term before your entry commits, `Propose` returns `raft.ErrProposalDropped` and you can retry on the new leader.
+- Followers apply committed entries too, a heartbeat or so after the leader. A read from a follower's state machine can lag the leader; reads aren't linearizable.
 - The memory state machine understands `set`, `delete` and `increment` commands and `{"type": "get", "key": ...}` queries. For your own data, implement `consensus.StateMachine` (`Apply`, `Snapshot`, `Restore` and `Query`) and pass it to `raft.NewNode` in place of `sm`.
-- `storage.NewBadgerStorage` and `storage.NewBoltDBStorage` give you on-disk logs, and `transport` has gRPC, TCP and HTTP transports. They compile, but nothing in the repository runs a networked cluster on them yet, so treat them as untested.
+- For a real deployment, swap in `storage.NewBadgerStorage` or `storage.NewBoltDBStorage` for an on-disk log, and `transport.NewTCPTransport`, `NewHTTPTransport` or `NewGRPCTransport` for the network. Three node clusters on all three network transports are covered by the module's tests. Give each node the others' addresses with `AddPeerAddress` instead of `AddPeer`, so servers you add later can reach them.
 
 ## Add the Forge extension
 
@@ -151,7 +151,7 @@ app := forge.NewApp(forge.AppConfig{
 		consensus.NewExtension(
 			consensus.WithNodeID("node-1"),
 			consensus.WithClusterID("orders"),
-			consensus.WithBindAddress("0.0.0.0", 7000),
+			consensus.WithBindAddress("10.0.0.1", 7000),
 			consensus.WithPeers([]consensus.PeerConfig{
 				{ID: "node-2", Address: "10.0.0.2", Port: 7000},
 				{ID: "node-3", Address: "10.0.0.3", Port: 7000},
@@ -161,27 +161,23 @@ app := forge.NewApp(forge.AppConfig{
 })
 ```
 
-Here's what that gives you today. The container holds `*consensus.Service` (also named `consensus`), but its Raft node, state machine, storage and transport are all nil. Nothing listens on port 7000 and the node stays a follower, so:
+`Start` builds the node from that config: the storage under `storage.path` (`badger` by default, or `boltdb` or `memory`), the transport on `bind_addr:bind_port` (`tcp` by default, or `http` or `grpc`), a memory state machine, and a Raft node whose first members are the `peers` list. Start the same app on every server with its own `node_id` and bind address, and they elect a leader between them. Mind you, `bind_addr` defaults to `127.0.0.1`, so set it to an address the other servers can reach.
+
+The container holds `*consensus.Service` (also named `consensus`). Take it from the extension and call it like this:
 
 | Call | What happens |
 | --- | --- |
-| `Apply` | Always returns `ErrNotLeader` |
-| `Read` | Panics on the nil state machine |
-| `HealthCheck` | Returns `storage not initialized`, and the service logs it on every health check |
-| `AddNode`, `RemoveNode` | Return a not-leader error |
-| `TransferLeadership`, `StepDown` | Return "not yet implemented" |
+| `Apply` | On the leader, appends the command and returns once it is committed and applied. Elsewhere it returns a not-leader error |
+| `Read` | Queries this node's state machine, which may lag the leader |
+| `Snapshot` | Snapshots the state machine and compacts the log |
+| `AddNode`, `RemoveNode` | Change membership one server at a time, on the leader |
+| `TransferLeadership`, `StepDown` | Hand leadership to a chosen voter, or step down and let an election decide |
 
-Turn off automatic snapshots if you add the extension anyway. They're on by default, and every `raft.snapshot_interval` (30 minutes) the snapshot call panics on the nil state machine and takes your process down:
+To grow the cluster, start the new server with `join: true` (or `consensus.WithJoin(true)`) and the existing members in its `peers`, so it waits to be added instead of electing itself. Then call `AddNode` on the leader with the new server's ID and address. It joins as a learner, catches up, and becomes a voter. After that first change the log holds the membership, so editing `peers` later does nothing.
 
-```yaml
-extensions:
-  consensus:
-    node_id: node-1
-    advanced:
-      enable_auto_snapshot: false
-```
+Turn on `security.enable_tls` or `enable_mtls` to protect traffic between nodes, and `security.enable_encryption` to encrypt what each node writes to disk. The README covers [encryption at rest](README.md#encryption-at-rest) in detail.
 
-`admin_api.enabled` only writes a log line, so there are no `/consensus/...` routes. The `middleware` package's leadership helpers take a `ConsensusService`, which the extension can't back with a real node yet.
+The admin routes are off by default. With `admin_api.enabled: true` they're registered on your app's router under `/consensus`, and they can write to the replicated log, so set `admin_api.enable_auth: true` and an `api_key` whenever anyone else can reach that router.
 
 The full list of config keys, defaults and validation rules is in the [README's configuration section](README.md#configuration).
 

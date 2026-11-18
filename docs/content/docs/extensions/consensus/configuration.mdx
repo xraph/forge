@@ -12,7 +12,7 @@ The extension reads `extensions.consensus` from your config, falling back to `co
 `WithRequireConfig(true)` makes a missing section an error at startup. `WithConfig(cfg)` replaces the whole programmatic config, and `NewExtensionWithConfig(cfg)` is shorthand for it.
 
 <Callout type="warn">
-The extension validates and stores most of this config but doesn't act on it, because it never builds storage, a transport, discovery or a Raft node. The keys it does read are listed under [keys the extension acts on](#keys-the-extension-acts-on).
+Some keys are validated and stored but have no effect yet. [Keys the extension acts on](#keys-the-extension-acts-on) lists the ones that do something, and the tables under [all keys](#all-keys) mark the rest.
 </Callout>
 
 ## YAML example
@@ -22,7 +22,7 @@ extensions:
   consensus:
     node_id: node-1
     cluster_id: orders
-    bind_addr: 0.0.0.0
+    bind_addr: 10.0.0.1
     bind_port: 7000
     peers:
       - {id: node-2, address: 10.0.0.2, port: 7000}
@@ -33,21 +33,27 @@ extensions:
       election_timeout_max: 10s
       snapshot_interval: 30m
     transport:
-      type: grpc          # grpc or tcp
+      type: tcp           # tcp, http or grpc
     storage:
-      type: badger        # badger, boltdb, pebble or postgres
+      type: badger        # badger, boltdb or memory
       path: ./data/consensus
     discovery:
-      type: static        # static, dns, consul, etcd or kubernetes
+      type: static        # only static is wired into the extension
+    security:
+      enable_mtls: true
+      enable_tls: true
+      cert_file: /etc/consensus/node-1.pem
+      key_file: /etc/consensus/node-1-key.pem
+      ca_file: /etc/consensus/ca.pem
+      enable_encryption: true
+      encryption_key_file: /etc/consensus/raft.key
     health:
       check_interval: 10s
     admin_api:
       enabled: false
-    advanced:
-      enable_auto_snapshot: false
 ```
 
-Keep `advanced.enable_auto_snapshot: false`. With the default of `true`, the extension's snapshot loop panics on its nil state machine after `raft.snapshot_interval`.
+`bind_addr` is both the address the node listens on and the address other members record for it, so use one the other servers can reach. A server joining an existing cluster also sets `join: true`; see [membership changes](/docs/extensions/consensus/features#membership-changes).
 
 ## Programmatic configuration
 
@@ -55,12 +61,12 @@ Keep `advanced.enable_auto_snapshot: false`. With the default of `true`, the ext
 ext := consensus.NewExtension(
 	consensus.WithNodeID("node-1"),
 	consensus.WithClusterID("orders"),
-	consensus.WithBindAddress("0.0.0.0", 7000),
+	consensus.WithBindAddress("10.0.0.1", 7000),
 	consensus.WithPeers([]consensus.PeerConfig{
 		{ID: "node-2", Address: "10.0.0.2", Port: 7000},
 		{ID: "node-3", Address: "10.0.0.3", Port: 7000},
 	}),
-	consensus.WithTransportType("grpc"),
+	consensus.WithTransportType("tcp"),
 	consensus.WithStorageType("badger"),
 	consensus.WithStoragePath("./data/consensus"),
 )
@@ -72,6 +78,7 @@ ext := consensus.NewExtension(
 | `WithClusterID(id string)` | `cluster_id` |
 | `WithBindAddress(addr string, port int)` | `bind_addr` and `bind_port` |
 | `WithPeers(peers []PeerConfig)` | `peers` |
+| `WithJoin(join bool)` | `join` |
 | `WithTransportType(transportType string)` | `transport.type` |
 | `WithDiscoveryType(discoveryType string)` | `discovery.type` |
 | `WithStorageType(storageType string)` | `storage.type` |
@@ -95,26 +102,39 @@ There are no options for the Raft timings, snapshots, health, observability, the
 | `raft.heartbeat_interval` > 0 | `1s` |
 | `raft.election_timeout_min` > `raft.heartbeat_interval` | `5s` |
 | `raft.election_timeout_max` > `raft.election_timeout_min` | `10s` |
-| `transport.type` is `grpc` or `tcp` | `grpc` |
+| `transport.type` is `tcp`, `http` or `grpc` | `tcp` |
 | `transport.max_message_size` > 0 | `4194304` (4MB) |
 | `discovery.type` is `static`, `dns`, `consul`, `etcd` or `kubernetes` | `static` |
-| `storage.type` is `badger`, `boltdb`, `pebble` or `postgres` | `badger` |
+| `storage.type` is `badger`, `boltdb`, `memory`, `pebble` or `postgres` | `badger` |
 | `storage.path` is set | `./data/consensus` |
 | `security.cert_file` and `key_file` are set when `enable_tls` is on | TLS off |
 | `enable_tls` is on and `ca_file` is set when `enable_mtls` is on | mTLS off |
+| With `security.enable_encryption`, exactly one key source is set (`encryption_key_file`, `encryption_key_env`, or `encryption_keys` with unique IDs from 1), inline keys (`encryption_key`, or `value` in a list entry) only with `allow_inline_encryption_key`, and `encryption_active_key_id` is a listed ID | encryption off |
+| `admin_api.api_key` is set when `admin_api.enable_auth` is on | auth off |
+
+Two more checks run when the service is created, after validation: `storage.type` must be `badger`, `boltdb` or `memory` (there's no implementation of `pebble` or `postgres`), and `discovery.type` must be `static`.
 
 ## Keys the extension acts on
 
 | Key | Default | What it does |
 |---|---|---|
-| `node_id`, `cluster_id` | none, `default` | Show up in logs, stats and events |
-| `health.enabled`, `health.check_interval` | `true`, `10s` | Run a loop that calls `HealthCheck` and logs a warning when it fails, which today is every time (`storage not initialized`) |
-| `observability.metrics.enabled`, `collection_interval` | `true`, `15s` | Run a metrics loop. The service has no metrics sink, so it records nothing |
-| `advanced.enable_auto_snapshot`, `raft.snapshot_interval` | `true`, `30m` | Run the snapshot loop, which panics. Turn it off |
-| `admin_api.enabled` | `true` | Logs "admin API enabled but not yet implemented" and nothing else |
+| `node_id`, `cluster_id` | none, `default` | Identify the node in the cluster, logs, stats and events |
+| `bind_addr`, `bind_port` | `127.0.0.1`, `7000` | Where the transport listens, and the address recorded for this node in membership changes |
+| `peers` | `[]` | The first members of a new cluster, and the routes to them. Once the log or a snapshot holds a membership, the log wins and changing `peers` does nothing |
+| `join` | `false` | Start as a server waiting to be added with `AddNode`. It never starts an election on its own |
+| `raft.heartbeat_interval`, `election_timeout_min`, `election_timeout_max` | `1s`, `5s`, `10s` | Raft timings |
+| `raft.max_append_entries` | `64` | Most entries in one AppendEntries message |
+| `raft.snapshot_interval`, `snapshot_threshold`, `advanced.enable_auto_snapshot` | `30m`, `10000`, `true` | With auto-snapshots on, the node checks every interval and snapshots when its log holds more than the threshold |
+| `transport.*` | see below | `type`, `max_message_size`, `timeout`, `connection_timeout`, `idle_timeout`, `max_connections`, `keep_alive_interval` (TCP and gRPC) and `keep_alive_timeout` (gRPC) |
+| `storage.type`, `storage.path` | `badger`, `./data/consensus` | The log storage backend and its directory |
+| `storage.bolt_options.timeout`, `no_sync`, `no_grow_sync` | `1s`, `false`, `false` | Passed to BoltDB. Leave `no_sync` off: with it on a crash can lose writes the node already acknowledged |
+| `security.*` | off | TLS and mTLS between nodes, and encryption at rest |
+| `admin_api.*` | off | Registers the admin routes and protects them with an API key |
+| `health.enabled`, `health.check_interval` | `true`, `10s` | Run a loop that calls `HealthCheck` and logs a warning when it fails |
+| `observability.metrics.enabled`, `collection_interval` | `true`, `15s` | Run a metrics loop. The extension creates the service without a metrics sink, so it records nothing |
 | `events.enabled` | `true` | Adds `events` to the dependencies and tries to publish start, stop and reload events |
 
-Everything else below is stored and validated where a rule exists, and otherwise ignored.
+The tables below mark the keys that are stored and validated where a rule exists, but otherwise ignored.
 
 ## All keys
 
@@ -124,9 +144,10 @@ Everything else below is stored and validated where a rule exists, and otherwise
 |---|---|---|
 | `node_id` | `string` | `""` |
 | `cluster_id` | `string` | `default` |
-| `bind_addr` | `string` | `0.0.0.0` |
+| `bind_addr` | `string` | `127.0.0.1` |
 | `bind_port` | `int` | `7000` |
 | `peers` | list of `{id, address, port}` | `[]` |
+| `join` | `bool` | `false` |
 
 ### `raft`
 
@@ -146,11 +167,13 @@ Everything else below is stored and validated where a rule exists, and otherwise
 | `check_quorum` | `bool` | `true` |
 | `disable_pipeline` | `bool` | `false` |
 
+`log_cache_size`, `trailing_logs`, `replication_batch_size`, `leader_lease_timeout`, `pre_vote`, `check_quorum` and `disable_pipeline` have no effect. The log keeps every entry after the last snapshot in memory, so there's no cache to size, and there's no pre-vote round or leader lease.
+
 ### `transport`
 
 | Key | Type | Default |
 |---|---|---|
-| `type` | `string` | `grpc` |
+| `type` | `string` | `tcp` |
 | `max_message_size` | `int` | `4194304` |
 | `timeout` | duration | `10s` |
 | `keep_alive` | `bool` | `true` |
@@ -162,6 +185,8 @@ Everything else below is stored and validated where a rule exists, and otherwise
 | `enable_compression` | `bool` | `true` |
 | `compression_level` | `int` | `6` |
 | `enable_multiplexing` | `bool` | `true` |
+
+`keep_alive`, `enable_compression`, `compression_level` and `enable_multiplexing` have no effect. TCP and gRPC connections always send keep-alive probes every `keep_alive_interval`, and messages are never compressed.
 
 ### `discovery`
 
@@ -175,6 +200,8 @@ Everything else below is stored and validated where a rule exists, and otherwise
 | `timeout` | duration | `10s` |
 | `ttl` | duration | `60s` |
 | `enable_watch` | `bool` | `true` |
+
+Only `type: static` is accepted by the service, and the other keys here have no effect.
 
 ### `storage`
 
@@ -196,6 +223,8 @@ Everything else below is stored and validated where a rule exists, and otherwise
 | `bolt_options.initial_mmap_size` | `int` | `0` |
 | `bolt_options.timeout` | duration | `1s` |
 
+BadgerDB always writes synchronously, so `sync_writes` and the `badger_options` keys have no effect, and neither do `max_batch_size`, `max_batch_delay`, `compact_on_start` or `bolt_options.initial_mmap_size`.
+
 ### `election`
 
 | Key | Type | Default |
@@ -208,6 +237,8 @@ Everything else below is stored and validated where a rule exists, and otherwise
 | `step_down_on_remove` | `bool` | `true` |
 | `leader_stickiness` | duration | `10s` |
 
+The `election` keys have no effect. Elections follow the `raft` timings, and a voter ignores vote requests while it has heard from a live leader within `raft.election_timeout_min`.
+
 ### `health`
 
 | Key | Type | Default |
@@ -217,6 +248,8 @@ Everything else below is stored and validated where a rule exists, and otherwise
 | `timeout` | duration | `5s` |
 | `unhealthy_threshold` | `int` | `3` |
 | `healthy_threshold` | `int` | `2` |
+
+Only `enabled` and `check_interval` are read.
 
 ### `observability`
 
@@ -233,6 +266,8 @@ Everything else below is stored and validated where a rule exists, and otherwise
 | `logging.enable_structured` | `bool` | `true` |
 | `logging.log_raft_details` | `bool` | `false` |
 
+Only the `metrics` keys are read, and only by the metrics loop, which has no sink to record into.
+
 ### `security`
 
 | Key | Type | Default |
@@ -242,7 +277,17 @@ Everything else below is stored and validated where a rule exists, and otherwise
 | `cert_file`, `key_file`, `ca_file` | `string` | `""` |
 | `skip_verify` | `bool` | `false` |
 | `enable_encryption` | `bool` | `false` |
+| `encryption_key_file` | `string` | `""` |
+| `encryption_key_env` | `string` | `""` |
+| `encryption_keys` | list of `{id, file, env, value}` | `[]` |
+| `encryption_active_key_id` | `uint32` | `0` (the highest listed ID) |
+| `allow_inline_encryption_key` | `bool` | `false` |
 | `encryption_key` | `string` | `""` |
+| `encryption_migrate_plaintext` | `bool` | `false` |
+
+With `enable_mtls`, each node's certificate must name its node ID as a DNS subject alternative name, and messages whose sender doesn't match the certificate are refused. `skip_verify` can't be combined with mTLS.
+
+For encryption at rest, give the node a 32 byte key in a file (`encryption_key_file`) or an environment variable (`encryption_key_env`), as raw bytes (files only), 64 hex characters or base64. `encryption_key` holds the key inline in the config and is refused unless you set `allow_inline_encryption_key: true`, because keys written into config files end up in version control. List several keys under `encryption_keys` to rotate. `encryption_migrate_plaintext` lets a node with existing unencrypted data encrypt it in place on start. The [features page](/docs/extensions/consensus/features#encryption-at-rest) covers the format, rotation and migration.
 
 ### `resilience`
 
@@ -257,11 +302,13 @@ Everything else below is stored and validated where a rule exists, and otherwise
 | `circuit_breaker_threshold` | `int` | `5` |
 | `circuit_breaker_timeout` | duration | `30s` |
 
+The `resilience` keys have no effect.
+
 ### `admin_api`
 
 | Key | Type | Default |
 |---|---|---|
-| `enabled` | `bool` | `true` |
+| `enabled` | `bool` | `false` |
 | `path_prefix` | `string` | `/consensus` |
 | `enable_auth` | `bool` | `false` |
 | `api_key` | `string` | `""` |
@@ -275,6 +322,8 @@ Everything else below is stored and validated where a rule exists, and otherwise
 | `emit_node_events` | `bool` | `true` |
 | `emit_cluster_events` | `bool` | `true` |
 
+The `emit_*` keys have no effect. The extension only publishes its start, stop and reload events.
+
 ### `advanced`
 
 | Key | Type | Default |
@@ -287,6 +336,8 @@ Everything else below is stored and validated where a rule exists, and otherwise
 | `enable_read_index` | `bool` | `true` |
 | `enable_leased_reads` | `bool` | `true` |
 
+Only `enable_auto_snapshot` is read. Compaction happens as part of each snapshot, and there are no read-index or leased reads.
+
 ## Hot reload
 
-The extension implements `Reload(ctx)`. It reloads and validates the config, then copies the `observability`, `health` and `admin_api` sections into the running service. The loops that already started keep their old intervals.
+The extension implements `Reload(ctx)`. It reloads and validates the config, then copies the `observability`, `health` and `admin_api` sections into the running service. The loops that already started keep their old intervals. The admin routes are registered once, when the extension registers, so changing `admin_api` takes a restart.

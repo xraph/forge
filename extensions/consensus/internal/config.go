@@ -10,11 +10,17 @@ type Config struct {
 	// Node configuration
 	NodeID    string `json:"node_id"    yaml:"node_id"`
 	ClusterID string `json:"cluster_id" yaml:"cluster_id"`
-	BindAddr  string `default:"0.0.0.0" json:"bind_addr"  yaml:"bind_addr"`
-	BindPort  int    `default:"7000"    json:"bind_port"  yaml:"bind_port"`
+	// BindAddr defaults to loopback. Set it to a routable address (or 0.0.0.0)
+	// explicitly to accept peers from other hosts.
+	BindAddr string `default:"127.0.0.1" json:"bind_addr" yaml:"bind_addr"`
+	BindPort int    `default:"7000"      json:"bind_port" yaml:"bind_port"`
 
 	// Peers - initial cluster members
 	Peers []PeerConfig `json:"peers" yaml:"peers"`
+
+	// Join starts this node as a server waiting to be added to an existing
+	// cluster with AddNode. Peers then only tell it where the cluster is.
+	Join bool `json:"join" yaml:"join"`
 
 	// Raft configuration
 	Raft RaftConfig `json:"raft" yaml:"raft"`
@@ -82,7 +88,7 @@ type RaftConfig struct {
 
 // TransportConfig contains transport layer configuration.
 type TransportConfig struct {
-	Type               string        `default:"grpc"    json:"type"                yaml:"type"`             // grpc, tcp
+	Type               string        `default:"tcp"     json:"type"                yaml:"type"`             // tcp, http, grpc
 	MaxMessageSize     int           `default:"4194304" json:"max_message_size"    yaml:"max_message_size"` // 4MB
 	Timeout            time.Duration `default:"10s"     json:"timeout"             yaml:"timeout"`
 	KeepAlive          bool          `default:"true"    json:"keep_alive"          yaml:"keep_alive"`
@@ -198,6 +204,17 @@ type SecurityConfig struct {
 	SkipVerify       bool   `default:"false"       json:"skip_verify"       yaml:"skip_verify"`
 	EnableEncryption bool   `default:"false"       json:"enable_encryption" yaml:"enable_encryption"`
 	EncryptionKey    string `json:"encryption_key" yaml:"encryption_key"`
+
+	// Encryption at rest keys. A single key (ID 1) comes from one of
+	// EncryptionKeyFile, EncryptionKeyEnv or, only with
+	// AllowInlineEncryptionKey, EncryptionKey. EncryptionKeys lists several
+	// keys for rotation; see EncryptionKeyConfig.
+	EncryptionKeyFile          string                `json:"encryption_key_file"          yaml:"encryption_key_file"`
+	EncryptionKeyEnv           string                `json:"encryption_key_env"           yaml:"encryption_key_env"`
+	EncryptionKeys             []EncryptionKeyConfig `json:"encryption_keys"              yaml:"encryption_keys"`
+	EncryptionActiveKeyID      uint32                `json:"encryption_active_key_id"     yaml:"encryption_active_key_id"`
+	AllowInlineEncryptionKey   bool                  `json:"allow_inline_encryption_key"  yaml:"allow_inline_encryption_key"`
+	EncryptionMigratePlaintext bool                  `json:"encryption_migrate_plaintext" yaml:"encryption_migrate_plaintext"`
 }
 
 // ResilienceConfig contains resilience configuration.
@@ -214,7 +231,10 @@ type ResilienceConfig struct {
 
 // AdminAPIConfig contains admin API configuration.
 type AdminAPIConfig struct {
-	Enabled    bool   `default:"true"       json:"enabled"     yaml:"enabled"`
+	// Enabled registers the admin routes on the app router. They can add
+	// commands to the replicated log, so set EnableAuth with an APIKey
+	// whenever the router is reachable by anyone else.
+	Enabled    bool   `default:"false"      json:"enabled"     yaml:"enabled"`
 	PathPrefix string `default:"/consensus" json:"path_prefix" yaml:"path_prefix"`
 	EnableAuth bool   `default:"false"      json:"enable_auth" yaml:"enable_auth"`
 	APIKey     string `json:"api_key"       yaml:"api_key"`
@@ -244,7 +264,7 @@ func DefaultConfig() Config {
 	return Config{
 		NodeID:    "",
 		ClusterID: "default",
-		BindAddr:  "0.0.0.0",
+		BindAddr:  "127.0.0.1",
 		BindPort:  7000,
 		Peers:     []PeerConfig{},
 		Raft: RaftConfig{
@@ -263,7 +283,7 @@ func DefaultConfig() Config {
 			DisablePipeline:      false,
 		},
 		Transport: TransportConfig{
-			Type:               "grpc",
+			Type:               "tcp",
 			MaxMessageSize:     4 * 1024 * 1024, // 4MB
 			Timeout:            10 * time.Second,
 			KeepAlive:          true,
@@ -358,7 +378,7 @@ func DefaultConfig() Config {
 			CircuitBreakerTimeout:   30 * time.Second,
 		},
 		AdminAPI: AdminAPIConfig{
-			Enabled:    true,
+			Enabled:    false,
 			PathPrefix: "/consensus",
 			EnableAuth: false,
 		},
@@ -409,7 +429,9 @@ func (c *Config) Validate() error {
 	}
 
 	// Validate transport config
-	if c.Transport.Type != "grpc" && c.Transport.Type != "tcp" {
+	switch c.Transport.Type {
+	case "tcp", "http", "grpc":
+	default:
 		return fmt.Errorf("%w: invalid transport type: %s", ErrInvalidConfig, c.Transport.Type)
 	}
 
@@ -427,7 +449,7 @@ func (c *Config) Validate() error {
 
 	// Validate storage config
 	validStorageTypes := map[string]bool{
-		"badger": true, "boltdb": true, "pebble": true, "postgres": true,
+		"badger": true, "boltdb": true, "memory": true, "pebble": true, "postgres": true,
 	}
 	if !validStorageTypes[c.Storage.Type] {
 		return fmt.Errorf("%w: invalid storage type: %s", ErrInvalidConfig, c.Storage.Type)
@@ -450,6 +472,14 @@ func (c *Config) Validate() error {
 
 	if c.Security.EnableMTLS && c.Security.CAFile == "" {
 		return fmt.Errorf("%w: security.ca_file is required when mTLS is enabled", ErrInvalidConfig)
+	}
+
+	if err := c.Security.validateEncryption(); err != nil {
+		return err
+	}
+
+	if c.AdminAPI.EnableAuth && c.AdminAPI.APIKey == "" {
+		return fmt.Errorf("%w: admin_api.api_key is required when admin_api.enable_auth is true", ErrInvalidConfig)
 	}
 
 	return nil
@@ -484,6 +514,14 @@ func WithBindAddress(addr string, port int) ConfigOption {
 func WithPeers(peers []PeerConfig) ConfigOption {
 	return func(c *Config) {
 		c.Peers = peers
+	}
+}
+
+// WithJoin starts the node as a server that waits to be added to an
+// existing cluster instead of bootstrapping one.
+func WithJoin(join bool) ConfigOption {
+	return func(c *Config) {
+		c.Join = join
 	}
 }
 
