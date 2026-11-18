@@ -8,6 +8,7 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"fmt"
+	"math"
 	"slices"
 	"strconv"
 	"sync"
@@ -205,6 +206,10 @@ func (k *Keyring) sealWith(id uint32, key, plaintext []byte) ([]byte, error) {
 	aead, ok := k.aeads[id]
 	if !ok {
 		return nil, fmt.Errorf("%w: key ID %d", ErrUnknownKeyID, id)
+	}
+
+	if len(plaintext) > math.MaxInt-EnvelopeOverhead {
+		return nil, fmt.Errorf("consensus storage: value of %d bytes is too large to encrypt", len(plaintext))
 	}
 
 	out := make([]byte, headerSize+nonceSize, headerSize+nonceSize+len(plaintext)+tagSize)
