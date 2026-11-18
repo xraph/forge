@@ -165,8 +165,7 @@ func TestHandleSSE_AnonymousChannelsParamIsRefused(t *testing.T) {
 	srv := httptest.NewServer(app.Router().(http.Handler))
 	defer srv.Close()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	if err := ext.Manager().CreateChannel(ctx, local.NewLocalChannel(streaming.ChannelOptions{
 		ID: "user-42-notifications", Name: "n", Private: true,
