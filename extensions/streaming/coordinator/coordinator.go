@@ -2,6 +2,7 @@ package coordinator
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	streaming "github.com/xraph/forge/extensions/streaming/internal"
@@ -81,4 +82,85 @@ const (
 	MessageTypeMemberLeave    = "room.member.leave"
 	MessageTypeNodeRegister   = "node.register"
 	MessageTypeNodeUnregister = "node.unregister"
+
+	// MessageTypeRoomBan tells every node a user was banned from a room, so
+	// each can take that user's local connections out of it. UserID and
+	// RoomID name the ban; the payload is a *RoomBanEvent.
+	MessageTypeRoomBan = "room.member.ban"
 )
+
+// RoomBanEvent is the payload of a MessageTypeRoomBan message.
+type RoomBanEvent struct {
+	Reason    string     `json:"reason,omitempty"`
+	ExpiresAt *time.Time `json:"expiresAt,omitempty"`
+}
+
+// EventPublisher is implemented by coordinators that can send a control event
+// to every other node. It is separate from StreamCoordinator so coordinators
+// written against that interface keep compiling; the manager checks for it
+// and does without when it is missing.
+type EventPublisher interface {
+	// PublishEvent sends msg to every node. NodeID and Timestamp are filled in
+	// when empty, so the sending node skips its own event.
+	PublishEvent(ctx context.Context, msg *CoordinatorMessage) error
+}
+
+// rawCoordinatorMessage is CoordinatorMessage with the payload left encoded.
+// The outer Payload field shadows the embedded one for encoding/json.
+type rawCoordinatorMessage struct {
+	CoordinatorMessage
+
+	Payload json.RawMessage `json:"payload"`
+}
+
+// DecodeMessage decodes a coordinator message off the wire.
+//
+// A broadcast's payload is decoded straight into a *streaming.Message. Left to
+// encoding/json it became a map[string]any, which the receiving node then
+// marshalled back to JSON and unmarshalled again into a Message: two extra
+// passes and a map of interface values per relayed message. Other message
+// types keep the generic decode, since their payloads have no single shape.
+func DecodeMessage(data []byte) (*CoordinatorMessage, error) {
+	var raw rawCoordinatorMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, err
+	}
+
+	msg := raw.CoordinatorMessage
+	msg.Payload = nil
+
+	if len(raw.Payload) == 0 || string(raw.Payload) == "null" {
+		return &msg, nil
+	}
+
+	switch msg.Type {
+	case MessageTypeBroadcast:
+		var sm streaming.Message
+		if err := json.Unmarshal(raw.Payload, &sm); err != nil {
+			return nil, err
+		}
+
+		msg.Payload = &sm
+
+		return &msg, nil
+
+	case MessageTypeRoomBan:
+		var ev RoomBanEvent
+		if err := json.Unmarshal(raw.Payload, &ev); err != nil {
+			return nil, err
+		}
+
+		msg.Payload = &ev
+
+		return &msg, nil
+	}
+
+	var payload any
+	if err := json.Unmarshal(raw.Payload, &payload); err != nil {
+		return nil, err
+	}
+
+	msg.Payload = payload
+
+	return &msg, nil
+}

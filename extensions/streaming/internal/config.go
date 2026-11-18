@@ -34,6 +34,13 @@ type Config struct {
 	// runs out of descriptors. 0 disables the cap.
 	MaxAnonymousConnections int `json:"max_anonymous_connections" yaml:"max_anonymous_connections"`
 
+	// AllowAnonymousSubscriptions lets connections with no authenticated user
+	// subscribe to channels. Off by default: a channel is how per-user data
+	// such as notifications reaches a client, and an unauthenticated
+	// EventSource could otherwise subscribe to any channel it could name. Even
+	// when on, the ChannelAuthorizer still decides each subscription.
+	AllowAnonymousSubscriptions bool `json:"allow_anonymous_subscriptions" yaml:"allow_anonymous_subscriptions"`
+
 	// MaxTotalConnections caps sockets on this node regardless of identity. A
 	// per-user limit does not bound the total: enough distinct users exceed any
 	// per-user number. 0 disables the cap.
@@ -198,6 +205,14 @@ type ConfigOption func(*Config)
 func WithConfig(config Config) ConfigOption {
 	return func(c *Config) {
 		*c = config
+	}
+}
+
+// WithAnonymousSubscriptions sets whether connections with no authenticated
+// user may subscribe to channels. See Config.AllowAnonymousSubscriptions.
+func WithAnonymousSubscriptions(allow bool) ConfigOption {
+	return func(c *Config) {
+		c.AllowAnonymousSubscriptions = allow
 	}
 }
 

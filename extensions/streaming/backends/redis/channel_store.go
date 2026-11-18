@@ -41,6 +41,10 @@ func (s *ChannelStore) Create(ctx context.Context, channel streaming.Channel) er
 		"message_count": channel.GetMessageCount(),
 	}
 
+	if p, ok := channel.(interface{ IsPrivate() bool }); ok && p.IsPrivate() {
+		data["private"] = true
+	}
+
 	dataJSON, err := json.Marshal(data)
 	if err != nil {
 		return err
@@ -82,12 +86,16 @@ func (s *ChannelStore) Get(ctx context.Context, channelID string) (streaming.Cha
 		return nil, err
 	}
 
+	// Absent on channels stored before the flag existed, which were public.
+	private, _ := channelData["private"].(bool)
+
 	return &redisChannel{
 		store:        s,
 		id:           channelData["id"].(string),
 		name:         channelData["name"].(string),
 		created:      time.Unix(int64(channelData["created"].(float64)), 0),
 		messageCount: int64(channelData["message_count"].(float64)),
+		private:      private,
 	}, nil
 }
 
@@ -316,7 +324,12 @@ type redisChannel struct {
 	name         string
 	created      time.Time
 	messageCount int64
+	private      bool
 }
+
+// IsPrivate reports whether the channel was created with
+// ChannelOptions.Private.
+func (c *redisChannel) IsPrivate() bool { return c.private }
 
 func (c *redisChannel) GetID() string          { return c.id }
 func (c *redisChannel) GetName() string        { return c.name }

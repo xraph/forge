@@ -35,6 +35,10 @@ type Extension struct {
 	manager Manager
 	hooks   *HookRegistry
 	codecs  *CodecRegistry
+
+	// channelAuth, when set by SetChannelAuthorizer, replaces the default
+	// channel policy.
+	channelAuth streamauth.ChannelAuthorizer
 }
 
 // NewExtension creates a new streaming extension with functional options.
@@ -190,6 +194,17 @@ func (e *Extension) Register(app forge.App) error {
 	managerOpts = append(managerOpts, WithRoomAuthorizer(roomAuthorizer))
 	managerOpts = append(managerOpts,
 		WithMessageAuthorizer(streamauth.NewMessageAuthorizer(roomAuthorizer, newAuthMessageStore(messageStore))))
+
+	// Channel subscriptions get the same treatment. The default admits public
+	// channels and refuses private ones, since the store has no record of who
+	// belongs to a private channel; SetChannelAuthorizer supplies a policy
+	// that does.
+	channelAuthorizer := e.channelAuth
+	if channelAuthorizer == nil {
+		channelAuthorizer = streamauth.NewChannelAuthorizer(channelStore)
+	}
+
+	managerOpts = append(managerOpts, WithChannelAuthorizer(channelAuthorizer))
 
 	// Create rate limiter using config values
 	rlConfig := ratelimit.DefaultRateLimitConfig()
@@ -353,6 +368,25 @@ func (e *Extension) Health(ctx context.Context) error {
 	return nil
 }
 
+// SetChannelAuthorizer replaces the policy that decides who may subscribe to
+// which channel. Call it before Register, or after it to swap the policy on a
+// running manager. Passing nil restores the default, which admits public
+// channels and refuses private ones.
+func (e *Extension) SetChannelAuthorizer(ca streamauth.ChannelAuthorizer) {
+	e.channelAuth = ca
+
+	m, ok := e.manager.(*manager)
+	if !ok {
+		return
+	}
+
+	if ca == nil {
+		ca = streamauth.NewChannelAuthorizer(m.channelStore)
+	}
+
+	m.setChannelAuthorizer(ca)
+}
+
 // Manager returns the streaming manager (for advanced usage).
 func (e *Extension) Manager() Manager {
 	return e.manager
@@ -417,6 +451,14 @@ func (e *Extension) handleWebSocket(ctx forge.Context, conn forge.Connection) er
 
 	// Create enhanced connection
 	enhanced := NewConnection(conn)
+
+	// Close stops the connection's send queue writer. Registered first so it
+	// runs last, after unregistration and the disconnect hooks, and on every
+	// early return too: a rejected or unregistrable connection already has a
+	// writer goroutine running. Unregister does not close the connection, so
+	// without this each disconnect left the writer and its stack behind.
+	defer func() { _ = enhanced.Close() }()
+
 	enhanced.SetUserID(userID)
 	enhanced.SetSessionID(sessionID)
 
@@ -486,21 +528,7 @@ func (e *Extension) handleWebSocket(ctx forge.Context, conn forge.Connection) er
 	if userID != "" && e.config.EnablePresence {
 		_ = e.manager.SetPresence(ctx.Request().Context(), userID, StatusOnline)
 
-		defer func() {
-			// Detached from the request context on purpose: by the time this
-			// runs the request context is cancelled, so a presence write to a
-			// Redis backend would fail with "context canceled" and the user
-			// would be stuck online forever.
-			presenceCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx.Request().Context()), 5*time.Second)
-			defer cancel()
-
-			// Unregister has already run (deferred later, so it fires first),
-			// meaning this connection is out of the registry and any remaining
-			// entries are genuinely other live sockets.
-			if len(e.manager.GetUserConnections(userID)) == 0 {
-				_ = e.manager.SetPresence(presenceCtx, userID, StatusOffline)
-			}
-		}()
+		defer e.markOfflineIfLast(ctx.Request().Context(), userID, conn.ID())
 	}
 
 	// Heartbeat, scoped to the connection's lifetime.
@@ -625,6 +653,36 @@ func (e *Extension) handleWebSocket(ctx forge.Context, conn forge.Connection) er
 	}
 }
 
+// markOfflineIfLast marks userID offline unless the user still has a live
+// connection other than connID.
+//
+// connID is excluded explicitly rather than relying on Unregister having run
+// first. Deferred calls run last-in first-out, and this one is deferred after
+// the unregistration, so it runs before it: counting every registered
+// connection always found this one and the user never went offline.
+//
+// The context is detached from the request on purpose. By the time this runs
+// the request context is cancelled, so a presence write to a Redis backend
+// would fail with "context canceled" and leave the user online forever. It is
+// still bounded, so a slow backend cannot hold the handler open.
+func (e *Extension) markOfflineIfLast(reqCtx context.Context, userID, connID string) {
+	for _, c := range e.manager.GetUserConnections(userID) {
+		if c.ID() != connID && !c.IsClosed() {
+			return
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(reqCtx), 5*time.Second)
+	defer cancel()
+
+	if err := e.manager.SetPresence(ctx, userID, StatusOffline); err != nil {
+		e.Logger().Warn("failed to mark user offline",
+			forge.F("user_id", userID),
+			forge.F("error", err),
+		)
+	}
+}
+
 // sendError reports a rejected message back to its sender.
 //
 // A rejection the client cannot see is a rejection the client cannot respond
@@ -651,7 +709,7 @@ func (e *Extension) sendError(conn Connection, cause *Message, err error) {
 	// Attach retry guidance when the rejection was a rate limit, so the client
 	// backs off by the server's schedule rather than guessing at one.
 	if errors.Is(err, ErrRateLimitExceeded) {
-		if status, sErr := e.manager.GetRateLimitStatus(context.Background(), conn.GetUserID()); sErr == nil {
+		if status, sErr := e.manager.GetRateLimitStatus(context.Background(), rateLimitKey(conn)); sErr == nil {
 			if data, ok := frame.Data.(map[string]any); ok {
 				data["retry_after_ms"] = status.RetryAfter.Milliseconds()
 				data["reset_at"] = status.ResetAt
@@ -785,6 +843,11 @@ func (e *Extension) handleSSE(ctx forge.Context, stream forge.Stream) error {
 
 	// Wrap in enhanced connection with SSE transport type
 	enhanced := NewConnectionWithTransport(sseConn, TransportSSE)
+
+	// See handleWebSocket: the send queue writer has to be stopped on every
+	// exit path, and Unregister does not do it.
+	defer func() { _ = enhanced.Close() }()
+
 	enhanced.SetUserID(userID)
 	enhanced.SetSessionID(sessionID)
 
@@ -886,17 +949,15 @@ func (e *Extension) handleSSE(ctx forge.Context, stream forge.Stream) error {
 		}
 	}
 
-	// Set user online
+	// Set user online, and offline again only when this was the user's last
+	// connection, the same rule the WebSocket handler follows. The SSE handler
+	// used to mark the user offline on every disconnect, so closing one tab
+	// made a user with another tab open appear offline, and it did so with the
+	// request context, which is already cancelled by then.
 	if userID != "" && e.config.EnablePresence {
 		_ = e.manager.SetPresence(ctx.Request().Context(), userID, StatusOnline)
-		defer func() {
-			if err := e.manager.SetPresence(ctx.Request().Context(), userID, StatusOffline); err != nil {
-				e.Logger().Warn("failed to mark SSE user offline",
-					forge.F("user_id", userID),
-					forge.F("error", err),
-				)
-			}
-		}()
+
+		defer e.markOfflineIfLast(ctx.Request().Context(), userID, sseConn.ID())
 	}
 
 	e.Logger().Debug("SSE connection established",

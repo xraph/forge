@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -143,10 +144,12 @@ func (s *RoomStore) Delete(ctx context.Context, roomID string) error {
 	key := fmt.Sprintf("%s:%s", s.prefix, roomID)
 	membersKey := fmt.Sprintf("%s:%s:members", s.prefix, roomID)
 
-	// Delete room, members, and from list
+	// Delete room, members, moderation state, and from list. Bans and mutes
+	// are dropped too, so a room recreated under the same id starts clean.
 	pipe := s.client.Pipeline()
 	pipe.Del(ctx, key)
 	pipe.Del(ctx, membersKey)
+	pipe.Del(ctx, s.bansKey(roomID), s.mutesKey(roomID))
 	pipe.SRem(ctx, s.prefix+":list", roomID)
 	_, err := pipe.Exec(ctx)
 
@@ -384,7 +387,7 @@ func (s *RoomStore) DeleteMany(ctx context.Context, roomIDs []string) error {
 		bansKey := fmt.Sprintf("%s:%s:bans", s.prefix, roomID)
 		invitesKey := fmt.Sprintf("%s:%s:invites", s.prefix, roomID)
 
-		pipe.Del(ctx, key, membersKey, bansKey, invitesKey)
+		pipe.Del(ctx, key, membersKey, bansKey, invitesKey, s.mutesKey(roomID))
 		pipe.SRem(ctx, s.prefix+":list", roomID)
 	}
 
@@ -530,16 +533,24 @@ func (s *RoomStore) GetTotalMembers(ctx context.Context) (int, error) {
 	return total, nil
 }
 
-// BanMember bans a member from a room.
+// BanMember bans a member from a room and removes their membership, as the
+// local backend does. It used to record the ban and leave the user a member.
 func (s *RoomStore) BanMember(ctx context.Context, roomID, userID string, ban streaming.RoomBan) error {
 	bansKey := fmt.Sprintf("%s:%s:bans", s.prefix, roomID)
+	membersKey := fmt.Sprintf("%s:%s:members", s.prefix, roomID)
 
 	banData, err := json.Marshal(ban)
 	if err != nil {
 		return err
 	}
 
-	return s.client.HSet(ctx, bansKey, userID, banData).Err()
+	pipe := s.client.TxPipeline()
+	pipe.HSet(ctx, bansKey, userID, banData)
+	pipe.HDel(ctx, membersKey, userID)
+
+	_, err = pipe.Exec(ctx)
+
+	return err
 }
 
 // UnbanMember removes a ban from a member.
@@ -558,10 +569,17 @@ func (s *RoomStore) GetBans(ctx context.Context, roomID string) ([]streaming.Roo
 		return nil, err
 	}
 
+	now := time.Now()
+
 	bans := make([]streaming.RoomBan, 0, len(bansData))
 	for _, banJSON := range bansData {
 		var ban streaming.RoomBan
 		if err := json.Unmarshal([]byte(banJSON), &ban); err != nil {
+			continue
+		}
+
+		// Expired bans are not bans. The local backend filters them the same way.
+		if ban.ExpiresAt != nil && !ban.ExpiresAt.After(now) {
 			continue
 		}
 
@@ -575,12 +593,79 @@ func (s *RoomStore) GetBans(ctx context.Context, roomID string) ([]streaming.Roo
 	return bans, nil
 }
 
-// IsBanned checks if a user is banned from a room.
+func (s *RoomStore) bansKey(roomID string) string {
+	return fmt.Sprintf("%s:%s:bans", s.prefix, roomID)
+}
+
+// mutesKey names the hash of a room's mutes: user id to the time the mute
+// ends, in Unix nanoseconds.
+func (s *RoomStore) mutesKey(roomID string) string {
+	return fmt.Sprintf("%s:%s:mutes", s.prefix, roomID)
+}
+
+func (s *RoomStore) muteMember(ctx context.Context, roomID, userID string, duration time.Duration) error {
+	until := time.Now().Add(duration).UnixNano()
+
+	return s.client.HSet(ctx, s.mutesKey(roomID), userID, strconv.FormatInt(until, 10)).Err()
+}
+
+// isMuted reports whether a mute is in force. An expired one is deleted on the
+// way past, the same way IsBanned treats an expired ban.
+func (s *RoomStore) isMuted(ctx context.Context, roomID, userID string) (bool, error) {
+	data, err := s.client.HGet(ctx, s.mutesKey(roomID), userID).Result()
+	if errors.Is(err, redis.Nil) {
+		return false, nil
+	}
+
+	if err != nil {
+		return false, err
+	}
+
+	until, err := strconv.ParseInt(data, 10, 64)
+	if err != nil {
+		// Unreadable, but a mute was recorded: err on the side of the mute.
+		return true, nil //nolint:nilerr // a corrupt mute entry still counts as a mute
+	}
+
+	if until <= time.Now().UnixNano() {
+		_ = s.client.HDel(ctx, s.mutesKey(roomID), userID).Err()
+
+		return false, nil
+	}
+
+	return true, nil
+}
+
+// IsBanned checks if a user is currently banned from a room.
+//
+// It honours RoomBan.ExpiresAt. It used to answer from HExists alone, so a
+// temporary ban never ran out. An expired entry is deleted on the way past,
+// which a read can safely do here since Redis serialises the HDel.
 func (s *RoomStore) IsBanned(ctx context.Context, roomID, userID string) (bool, error) {
 	bansKey := fmt.Sprintf("%s:%s:bans", s.prefix, roomID)
-	exists, err := s.client.HExists(ctx, bansKey, userID).Result()
 
-	return exists, err
+	data, err := s.client.HGet(ctx, bansKey, userID).Result()
+	if errors.Is(err, redis.Nil) {
+		return false, nil
+	}
+
+	if err != nil {
+		return false, err
+	}
+
+	var ban streaming.RoomBan
+	if err := json.Unmarshal([]byte(data), &ban); err != nil {
+		// Unreadable, but a ban was recorded: err on the side of the ban.
+		return true, nil //nolint:nilerr // a corrupt ban entry still counts as a ban
+	}
+
+	if ban.ExpiresAt != nil && !ban.ExpiresAt.After(time.Now()) {
+		_ = s.client.HDel(ctx, bansKey, userID).Err()
+
+		return false, nil
+	}
+
+	return true, nil
 }
 
 // SaveInvite saves an invite for a room.
@@ -751,32 +836,45 @@ func (r *redisRoom) TransferOwnership(ctx context.Context, newOwnerID string) er
 	return streaming.ErrInvalidRoom
 }
 
+// BanMember bans userID through the room's store. Like the local backend,
+// these used to return ErrInvalidRoom, so Manager.BanUser always failed.
 func (r *redisRoom) BanMember(ctx context.Context, userID string, reason string, until *time.Time) error {
-	return streaming.ErrInvalidRoom
+	return r.store.BanMember(ctx, r.id, userID, streaming.RoomBan{
+		UserID:    userID,
+		RoomID:    r.id,
+		Reason:    reason,
+		BannedAt:  time.Now(),
+		ExpiresAt: until,
+	})
 }
 
 func (r *redisRoom) UnbanMember(ctx context.Context, userID string) error {
-	return streaming.ErrInvalidRoom
+	return r.store.UnbanMember(ctx, r.id, userID)
 }
 
 func (r *redisRoom) IsBanned(ctx context.Context, userID string) (bool, error) {
-	return false, streaming.ErrInvalidRoom
+	return r.store.IsBanned(ctx, r.id, userID)
 }
 
 func (r *redisRoom) GetBannedMembers(ctx context.Context) ([]streaming.RoomBan, error) {
-	return nil, streaming.ErrInvalidRoom
+	return r.store.GetBans(ctx, r.id)
 }
 
+// MuteMember mutes userID in the room until now+duration, as the local
+// backend does.
+//
+// These used to return ErrInvalidRoom, so Manager.MuteUser failed on every
+// Redis room and the send check, which reads IsMuted, never saw a mute.
 func (r *redisRoom) MuteMember(ctx context.Context, userID string, duration time.Duration) error {
-	return streaming.ErrInvalidRoom
+	return r.store.muteMember(ctx, r.id, userID, duration)
 }
 
 func (r *redisRoom) UnmuteMember(ctx context.Context, userID string) error {
-	return streaming.ErrInvalidRoom
+	return r.store.client.HDel(ctx, r.store.mutesKey(r.id), userID).Err()
 }
 
 func (r *redisRoom) IsMuted(ctx context.Context, userID string) (bool, error) {
-	return false, streaming.ErrInvalidRoom
+	return r.store.isMuted(ctx, r.id, userID)
 }
 
 // Invitations.

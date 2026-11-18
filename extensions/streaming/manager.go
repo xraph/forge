@@ -54,6 +54,12 @@ type manager struct {
 	roomAuth    streamauth.RoomAuthorizer
 	messageAuth streamauth.MessageAuthorizer
 
+	// channelAuth decides channel subscriptions. Unlike the two above it is
+	// never left nil: NewManager falls back to the default policy, because a
+	// Subscribe with no check at all handed any channel, private ones
+	// included, to whoever named it.
+	channelAuth streamauth.ChannelAuthorizer
+
 	// Load balancer (optional, distributed mode)
 	loadBalancer  lb.LoadBalancer
 	healthChecker lb.HealthChecker
@@ -65,8 +71,10 @@ type manager struct {
 	hooks  *HookRegistry
 	codecs *CodecRegistry
 
-	// Message deduplication for distributed mode
-	dedup *messageDedup
+	// Message deduplication for distributed mode. Atomic because the
+	// coordinator's listener goroutine reads it while Stop swaps it out: a
+	// message in flight when the node stops raced with the plain field.
+	dedup atomic.Pointer[messageDedup]
 
 	// Connection registry
 	connections map[string]Connection // connID -> connection
@@ -91,6 +99,14 @@ type manager struct {
 	// rather than mutex-guarded: it is incremented on every fan-out, and taking
 	// the manager lock per message would serialise all delivery behind it.
 	messagesSent atomic.Int64
+
+	// userNodeLocks serialise the coordinator's per-user node tracking. The
+	// Redis calls run outside mu, so without these an Unregister that saw a
+	// user's last connection go could SREM after a concurrent Register had
+	// already SADDed for a new one, leaving a connected user untracked.
+	// Striped by user so unrelated users do not wait on each other's Redis
+	// round trips.
+	userNodeLocks [userNodeLockStripes]sync.Mutex
 
 	// Configuration
 	config Config
@@ -154,6 +170,13 @@ func WithMessageAuthorizer(ma streamauth.MessageAuthorizer) ManagerOption {
 	return func(m *manager) { m.messageAuth = ma }
 }
 
+// WithChannelAuthorizer sets the channel authorizer consulted on every
+// Subscribe. Without it the manager uses streamauth.NewChannelAuthorizer,
+// which admits public channels and refuses private ones.
+func WithChannelAuthorizer(ca streamauth.ChannelAuthorizer) ManagerOption {
+	return func(m *manager) { m.channelAuth = ca }
+}
+
 // WithManagerNodeID sets the node ID for distributed mode.
 func WithManagerNodeID(id string) ManagerOption {
 	return func(m *manager) { m.nodeID = id }
@@ -202,12 +225,113 @@ func NewManager(
 		opt(m)
 	}
 
+	if m.channelAuth == nil && channelStore != nil {
+		m.channelAuth = streamauth.NewChannelAuthorizer(channelStore)
+	}
+
 	return m
+}
+
+// setChannelAuthorizer replaces the channel authorizer after construction.
+// Used by Extension.SetChannelAuthorizer.
+func (m *manager) setChannelAuthorizer(ca streamauth.ChannelAuthorizer) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.channelAuth = ca
+}
+
+func (m *manager) channelAuthorizer() streamauth.ChannelAuthorizer {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	return m.channelAuth
 }
 
 // Connection management
 
+// userNodeLockStripes is the number of locks userNodeLocks is striped over.
+const userNodeLockStripes = 64
+
+// coordinatorCallTimeout bounds one coordinator or session store call made on
+// the connect and disconnect path. These used to run with
+// context.Background() while holding the manager's write lock, so one slow
+// Redis round trip stalled every connect, disconnect and broadcast on the
+// node, and a hung one stalled them forever.
+const coordinatorCallTimeout = 2 * time.Second
+
 func (m *manager) Register(conn Connection) error {
+	if err := m.registerLocked(conn); err != nil {
+		return err
+	}
+
+	// Outside the lock: a network round trip.
+	if userID := conn.GetUserID(); userID != "" {
+		m.syncUserNode(userID)
+	}
+
+	return nil
+}
+
+// syncUserNode brings the coordinator's record of whether userID is on this
+// node in line with the registry, as it stands when the call runs. Reading
+// the registry under the user's stripe lock, rather than passing in what the
+// caller saw, is what keeps concurrent connects and disconnects of one user
+// from leaving a stale answer behind.
+func (m *manager) syncUserNode(userID string) {
+	if m.coordinator == nil || userID == "" || m.nodeID == "" {
+		return
+	}
+
+	type userNodeTracker interface {
+		TrackUserNode(ctx context.Context, userID, nodeID string) error
+		UntrackUserNode(ctx context.Context, userID, nodeID string) error
+	}
+
+	tracker, ok := m.coordinator.(userNodeTracker)
+	if !ok {
+		return
+	}
+
+	lock := &m.userNodeLocks[stripeOf(userID)]
+	lock.Lock()
+	defer lock.Unlock()
+
+	m.mu.RLock()
+	_, connected := m.userConns[userID]
+	m.mu.RUnlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), coordinatorCallTimeout)
+	defer cancel()
+
+	var err error
+	if connected {
+		err = tracker.TrackUserNode(ctx, userID, m.nodeID)
+	} else {
+		err = tracker.UntrackUserNode(ctx, userID, m.nodeID)
+	}
+
+	if err != nil && m.logger != nil {
+		m.logger.Warn("coordinator user tracking failed",
+			forge.F("user_id", userID),
+			forge.F("connected", connected),
+			forge.F("error", err),
+		)
+	}
+}
+
+// stripeOf maps a user id to one of the userNodeLocks (FNV-1a).
+func stripeOf(userID string) int {
+	h := uint32(2166136261)
+	for i := range len(userID) {
+		h ^= uint32(userID[i])
+		h *= 16777619
+	}
+
+	return int(h % userNodeLockStripes)
+}
+
+func (m *manager) registerLocked(conn Connection) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -286,15 +410,6 @@ func (m *manager) Register(conn Connection) error {
 		}
 	}
 
-	// Track user on this node for coordinator
-	if m.coordinator != nil && userID != "" && m.nodeID != "" {
-		if tracker, ok := m.coordinator.(interface {
-			TrackUserNode(ctx context.Context, userID, nodeID string) error
-		}); ok {
-			_ = tracker.TrackUserNode(context.Background(), userID, m.nodeID)
-		}
-	}
-
 	// Track metrics
 	if m.metrics != nil {
 		m.metrics.Gauge("streaming.connections.active").Inc()
@@ -312,39 +427,69 @@ func (m *manager) Register(conn Connection) error {
 }
 
 func (m *manager) Unregister(connID string) error {
+	userID, snapshot, err := m.unregisterLocked(connID)
+	if err != nil {
+		return err
+	}
+
+	// Both of these can be network calls, so they run after the lock is
+	// released, each with a bounded context. They still complete before
+	// Unregister returns, so a reconnect that follows can resume the session.
+	if snapshot != nil {
+		m.saveSessionSnapshot(snapshot)
+	}
+
+	if userID != "" {
+		m.syncUserNode(userID)
+	}
+
+	return nil
+}
+
+func (m *manager) saveSessionSnapshot(snapshot *SessionSnapshot) {
+	ctx, cancel := context.WithTimeout(context.Background(), coordinatorCallTimeout)
+	defer cancel()
+
+	if err := m.sessionStore.Save(ctx, snapshot, m.config.SessionResumptionTTL); err != nil {
+		if m.logger != nil {
+			m.logger.Error("failed to save session snapshot",
+				forge.F("session_id", snapshot.SessionID),
+				forge.F("error", err),
+			)
+		}
+	} else if m.logger != nil {
+		m.logger.Debug("session snapshot saved for resumption",
+			forge.F("session_id", snapshot.SessionID),
+			forge.F("ttl", m.config.SessionResumptionTTL),
+		)
+	}
+}
+
+// unregisterLocked removes the connection from the registry and indexes. It
+// returns the user id and, when resumption is on, the session snapshot to
+// save, both taken while the connection's state is still consistent.
+func (m *manager) unregisterLocked(connID string) (string, *SessionSnapshot, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	conn, exists := m.connections[connID]
 	if !exists {
-		return ErrConnectionNotFound
+		return "", nil, ErrConnectionNotFound
 	}
 
 	userID := conn.GetUserID()
 
-	// Save session snapshot for resumption before cleanup
+	// Snapshot for resumption before cleanup.
+	var snapshot *SessionSnapshot
+
 	if m.sessionStore != nil && m.config.EnableSessionResumption {
-		sessionID := conn.GetSessionID()
-		if sessionID != "" {
-			snapshot := &SessionSnapshot{
+		if sessionID := conn.GetSessionID(); sessionID != "" {
+			snapshot = &SessionSnapshot{
 				SessionID:      sessionID,
 				UserID:         userID,
 				Rooms:          conn.GetJoinedRooms(),
 				Channels:       conn.GetSubscriptions(),
 				DisconnectedAt: time.Now(),
-			}
-			if err := m.sessionStore.Save(context.Background(), snapshot, m.config.SessionResumptionTTL); err != nil {
-				if m.logger != nil {
-					m.logger.Error("failed to save session snapshot",
-						forge.F("session_id", sessionID),
-						forge.F("error", err),
-					)
-				}
-			} else if m.logger != nil {
-				m.logger.Debug("session snapshot saved for resumption",
-					forge.F("session_id", sessionID),
-					forge.F("ttl", m.config.SessionResumptionTTL),
-				)
 			}
 		}
 	}
@@ -384,17 +529,6 @@ func (m *manager) Unregister(connID string) error {
 		}
 	}
 
-	// Untrack user from this node if no more connections
-	if m.coordinator != nil && userID != "" && m.nodeID != "" {
-		if _, stillHasConns := m.userConns[userID]; !stillHasConns {
-			if tracker, ok := m.coordinator.(interface {
-				UntrackUserNode(ctx context.Context, userID, nodeID string) error
-			}); ok {
-				_ = tracker.UntrackUserNode(context.Background(), userID, m.nodeID)
-			}
-		}
-	}
-
 	// Track metrics
 	if m.metrics != nil {
 		m.metrics.Gauge("streaming.connections.active").Dec()
@@ -407,7 +541,7 @@ func (m *manager) Unregister(connID string) error {
 		)
 	}
 
-	return nil
+	return userID, snapshot, nil
 }
 
 // ResumeSession restores room and channel state from a previous session.
@@ -644,6 +778,17 @@ func (m *manager) JoinRoom(ctx context.Context, connID, roomID string) error {
 		}
 	}
 
+	// A banned user may not rejoin, whichever path the join came by: a client
+	// frame, ?rooms= on an SSE connection, the subscribe endpoint or a
+	// resumed session. The default room authorizer does not look at bans.
+	if banned, bErr := m.roomStore.IsBanned(ctx, roomID, userID); bErr == nil && banned {
+		if m.metrics != nil {
+			m.metrics.Counter("streaming.rooms.joins_denied").Inc()
+		}
+
+		return ErrUserBanned
+	}
+
 	// Check room limit. Counts store membership, which is only meaningful
 	// because the store write below actually happens.
 	userRooms, _ := m.roomStore.GetUserRooms(ctx, userID)
@@ -800,6 +945,18 @@ func (m *manager) Subscribe(ctx context.Context, connID, channelID string, filte
 
 	userID := conn.GetUserID()
 
+	// Authorization first, before the limit check or the store write, the
+	// same order JoinRoom uses. Subscribe used to check nothing, so an
+	// anonymous EventSource asking for ?channels=user-42-notifications got
+	// user 42's private notifications.
+	if err := m.authorizeSubscribe(ctx, userID, channelID); err != nil {
+		if m.metrics != nil {
+			m.metrics.Counter("streaming.channels.subscribes_denied").Inc()
+		}
+
+		return err
+	}
+
 	// Check channel limit
 	userChannels, _ := m.channelStore.GetUserChannels(ctx, userID)
 	if m.config.MaxChannelsPerUser > 0 && len(userChannels) >= m.config.MaxChannelsPerUser {
@@ -825,6 +982,30 @@ func (m *manager) Subscribe(ctx context.Context, connID, channelID string, filte
 
 	if m.metrics != nil {
 		m.metrics.Counter("streaming.channels.subscriptions").Inc()
+	}
+
+	return nil
+}
+
+// authorizeSubscribe applies the anonymous-subscriber policy and then the
+// channel authorizer.
+func (m *manager) authorizeSubscribe(ctx context.Context, userID, channelID string) error {
+	if userID == "" && !m.config.AllowAnonymousSubscriptions {
+		return fmt.Errorf("%w: anonymous connections cannot subscribe to channels", ErrChannelAccessDenied)
+	}
+
+	ca := m.channelAuthorizer()
+	if ca == nil {
+		return nil
+	}
+
+	allowed, err := ca.CanSubscribe(ctx, userID, channelID)
+	if err != nil {
+		return fmt.Errorf("channel subscribe authorization failed: %w", err)
+	}
+
+	if !allowed {
+		return ErrChannelAccessDenied
 	}
 
 	return nil
@@ -1045,9 +1226,11 @@ func (m *manager) ProcessInbound(ctx context.Context, message *Message, sender C
 		}
 	}
 
-	// 2. Rate limiting.
-	if m.rateLimiter != nil && userID != "" {
-		allowed, err := m.rateLimiter.Allow(ctx, userID, "message")
+	// 2. Rate limiting. Anonymous connections are limited too, per
+	// connection. They used to skip the limiter entirely, which made the
+	// cheapest identity to obtain the only one with no rate limit.
+	if key := rateLimitKey(sender); m.rateLimiter != nil && key != "" {
+		allowed, err := m.rateLimiter.Allow(ctx, key, "message")
 		if err != nil {
 			// A limiter that cannot answer must not become an open door in one
 			// direction or a hard outage in the other. Log and allow: the
@@ -1088,11 +1271,44 @@ func (m *manager) ProcessInbound(ctx context.Context, message *Message, sender C
 	return message, nil
 }
 
+// rateLimitKey is the identity a connection's inbound messages are rate
+// limited under: the user for an authenticated connection, so a user's
+// sockets share one budget, and the connection itself for an anonymous one.
+//
+// Per connection rather than per remote address on purpose. Behind a proxy or
+// a shared NAT every anonymous client has the same address, and one noisy
+// client would use up the budget for all of them. The number of anonymous
+// connections is capped separately by MaxAnonymousConnections.
+func rateLimitKey(conn Connection) string {
+	if conn == nil {
+		return ""
+	}
+
+	if userID := conn.GetUserID(); userID != "" {
+		return userID
+	}
+
+	return "anon:conn:" + conn.ID()
+}
+
 // authorizeSend checks that the sender may publish to the target the message
 // names.
 func (m *manager) authorizeSend(ctx context.Context, message *Message, sender Connection, userID string) error {
 	if sender == nil {
 		return nil // Server-originated message; not subject to client authorization.
+	}
+
+	// Membership control frames are not sends. Requiring the sender to be in
+	// the room already made a join frame impossible to pass: every client
+	// "join" was rejected here and never reached JoinRoom, so a WebSocket
+	// client had no way into a room at all.
+	switch message.Type {
+	case streaming.MessageTypeJoin:
+		return m.authorizeJoinFrame(ctx, message, userID)
+	case streaming.MessageTypeLeave:
+		// Leaving a room the connection is not in is a no-op in LeaveRoom, and
+		// leaving one it is in needs no permission.
+		return nil
 	}
 
 	switch {
@@ -1123,15 +1339,18 @@ func (m *manager) authorizeSend(ctx context.Context, message *Message, sender Co
 			}
 		}
 
-		// Moderation state, which the room already tracks and nothing consulted.
+		// Moderation state. Bans are read from the store, not the Room: the
+		// local Room's IsBanned only ever returned an error, which this check
+		// read as "not banned", and a store read also sees a ban made on
+		// another node for a connection that is still in the room here.
 		if userID != "" {
+			if banned, bErr := m.roomStore.IsBanned(ctx, message.RoomID, userID); bErr == nil && banned {
+				return ErrUserBanned
+			}
+
 			if room, err := m.roomStore.Get(ctx, message.RoomID); err == nil {
 				if muted, mErr := room.IsMuted(ctx, userID); mErr == nil && muted {
 					return ErrUserMuted
-				}
-
-				if banned, bErr := room.IsBanned(ctx, userID); bErr == nil && banned {
-					return ErrUserBanned
 				}
 			}
 		}
@@ -1160,6 +1379,46 @@ func (m *manager) authorizeSend(ctx context.Context, message *Message, sender Co
 	return nil
 }
 
+// authorizeJoinFrame checks a client's request to join a room before it
+// reaches JoinRoom.
+//
+// JoinRoom applies the room authorizer itself, since it is also called from
+// server code. The gate asks the same question first so a refused join is
+// reported as a rejection like any other refused frame, and it also refuses a
+// user banned from the room, which CanJoin does not consider.
+func (m *manager) authorizeJoinFrame(ctx context.Context, message *Message, userID string) error {
+	if message.RoomID == "" {
+		return nil // handleMessage ignores a join with no room.
+	}
+
+	if userID == "" {
+		return fmt.Errorf("%w: anonymous connections cannot join rooms", ErrRoomAccessDenied)
+	}
+
+	if m.roomAuth != nil {
+		allowed, err := m.roomAuth.CanJoin(ctx, userID, message.RoomID)
+		if err != nil {
+			return fmt.Errorf("room join authorization failed: %w", err)
+		}
+
+		if !allowed {
+			if m.metrics != nil {
+				m.metrics.Counter("streaming.rooms.joins_denied").Inc()
+			}
+
+			return ErrRoomAccessDenied
+		}
+	}
+
+	// Asked of the store rather than the room object: the local backend keeps
+	// bans in the store, and its room's IsBanned only reports an error.
+	if banned, err := m.roomStore.IsBanned(ctx, message.RoomID, userID); err == nil && banned {
+		return ErrUserBanned
+	}
+
+	return nil
+}
+
 // approximateMessageSize estimates the wire size of a message without paying
 // for a full encode.
 //
@@ -1180,8 +1439,58 @@ func approximateMessageSize(msg *Message) int {
 	return len(data)
 }
 
+// sharedEncoding holds one message's encodings for the duration of a fan-out,
+// one per content type, so a broadcast encodes its message once rather than
+// once per recipient. Safe for the fan-out's concurrent workers.
+//
+// It only covers the message the broadcast started with. A filter that hands
+// a recipient a different message gets that message encoded on its own.
+type sharedEncoding struct {
+	msg *Message
+
+	mu     sync.Mutex
+	byType map[string]sharedFrame
+}
+
+type sharedFrame struct {
+	data []byte
+	err  error
+}
+
+func newSharedEncoding(msg *Message) *sharedEncoding {
+	return &sharedEncoding{msg: msg}
+}
+
+// get returns the encoding for contentType, running encode the first time.
+// The lock is held across encode on purpose: workers asking for the same
+// content type wait for one encode instead of all doing it.
+func (e *sharedEncoding) get(contentType string, encode func() ([]byte, error)) ([]byte, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if f, ok := e.byType[contentType]; ok {
+		return f.data, f.err
+	}
+
+	data, err := encode()
+
+	if e.byType == nil {
+		e.byType = make(map[string]sharedFrame, 1)
+	}
+
+	e.byType[contentType] = sharedFrame{data: data, err: err}
+
+	return data, err
+}
+
 // deliverToConnection delivers a message to a single connection, applying per-recipient filters.
 func (m *manager) deliverToConnection(ctx context.Context, conn Connection, message *Message) error {
+	return m.deliverShared(ctx, conn, message, nil)
+}
+
+// deliverShared is deliverToConnection with an optional encoding shared
+// across a fan-out. enc may be nil.
+func (m *manager) deliverShared(ctx context.Context, conn Connection, message *Message, enc *sharedEncoding) error {
 	msg := message
 	if m.filterChain != nil {
 		filtered, err := m.filterChain.Apply(ctx, msg, conn)
@@ -1207,8 +1516,23 @@ func (m *manager) deliverToConnection(ctx context.Context, conn Connection, mess
 		contentType = conn.GetContentType()
 	}
 
+	// The shared encoding applies only when the filters left the message as
+	// the broadcast sent it.
+	if enc != nil && msg != enc.msg {
+		enc = nil
+	}
+
 	// Use WriteJSON for default JSON or empty content type (backward compatible)
 	if contentType == "" || contentType == streaming.ContentTypeJSON {
+		if w, ok := conn.(encodedJSONWriter); ok && enc != nil {
+			data, err := enc.get(streaming.ContentTypeJSON, func() ([]byte, error) { return json.Marshal(msg) })
+			if err != nil {
+				return err
+			}
+
+			return w.writeEncodedJSON(data, msg)
+		}
+
 		return conn.WriteJSON(msg)
 	}
 
@@ -1220,7 +1544,19 @@ func (m *manager) deliverToConnection(ctx context.Context, conn Connection, mess
 	// The per-connection preference set via SetContentType therefore never
 	// reached a codec at all.
 	if m.codecs != nil {
-		data, err := m.codecs.EncodeWithType(contentType, msg)
+		encode := func() ([]byte, error) { return m.codecs.EncodeWithType(contentType, msg) }
+
+		var (
+			data []byte
+			err  error
+		)
+
+		if enc != nil {
+			data, err = enc.get(contentType, encode)
+		} else {
+			data, err = encode()
+		}
+
 		if err != nil {
 			return err
 		}
@@ -1361,6 +1697,10 @@ func (m *manager) fanOut(
 		return 0
 	}
 
+	// Encode once for the whole fan-out. Every recipient used to marshal the
+	// same *Message itself: a 1000-member room cost 1000 encodes per message.
+	enc := newSharedEncoding(message)
+
 	logFailure := func(c Connection, err error) {
 		if m.logger != nil {
 			m.logger.Error("failed to deliver message",
@@ -1377,7 +1717,7 @@ func (m *manager) fanOut(
 		var count int64
 
 		for _, conn := range conns {
-			if err := m.deliverToConnection(ctx, conn, message); err != nil {
+			if err := m.deliverShared(ctx, conn, message, enc); err != nil {
 				logFailure(conn, err)
 			} else {
 				count++
@@ -1401,7 +1741,7 @@ func (m *manager) fanOut(
 	for range workers {
 		wg.Go(func() {
 			for conn := range work {
-				if err := m.deliverToConnection(ctx, conn, message); err != nil {
+				if err := m.deliverShared(ctx, conn, message, enc); err != nil {
 					logFailure(conn, err)
 				} else {
 					count.Add(1)
@@ -1675,7 +2015,7 @@ func (m *manager) Start(ctx context.Context) error {
 
 	// Initialize message deduplication for distributed mode
 	if m.coordinator != nil {
-		m.dedup = newMessageDedup(10000, 30*time.Second)
+		m.dedup.Store(newMessageDedup(10000, 30*time.Second))
 	}
 
 	// Start coordinator if enabled
@@ -1857,9 +2197,8 @@ func (m *manager) Stop(ctx context.Context) error {
 	// in-memory session store run an unstoppable ticker loop until closed, so
 	// without this every start/stop cycle leaked one of each — most visibly in
 	// tests, which construct and discard managers repeatedly.
-	if m.dedup != nil {
-		_ = m.dedup.Close()
-		m.dedup = nil
+	if d := m.dedup.Swap(nil); d != nil {
+		_ = d.Close()
 	}
 
 	if closer, ok := m.sessionStore.(interface{ Close() error }); ok && m.sessionStore != nil {
@@ -2772,17 +3111,45 @@ func (m *manager) UnmuteUser(ctx context.Context, userID, roomID string) error {
 	return nil
 }
 
+// BanUser bans a user from a room, removes their membership, and takes every
+// connection of theirs on this node out of the room.
+//
+// It goes through the room store rather than the Room object. The local
+// backend's Room returned ErrInvalidRoom from every ban method, so this failed
+// on every local room. It also used to leave the user's live connections in
+// the room, still receiving its traffic.
 func (m *manager) BanUser(ctx context.Context, userID, roomID string, reason string, until *time.Time) error {
-	// Get the room to access moderation methods
-	room, err := m.GetRoom(ctx, roomID)
-	if err != nil {
+	if _, err := m.GetRoom(ctx, roomID); err != nil {
 		return err
 	}
 
-	// Use the room's ban functionality
-	if err := room.BanMember(ctx, userID, reason, until); err != nil {
+	ban := streaming.RoomBan{
+		UserID:    userID,
+		RoomID:    roomID,
+		Reason:    reason,
+		BannedAt:  time.Now(),
+		ExpiresAt: until,
+	}
+
+	if err := m.roomStore.BanMember(ctx, roomID, userID, ban); err != nil {
 		return err
 	}
+
+	// The bundled stores drop the membership as part of the ban. A custom
+	// store may not, and a banned user must not stay a member.
+	if err := m.roomStore.RemoveMember(ctx, roomID, userID); err != nil &&
+		!errors.Is(err, streaming.ErrNotRoomMember) &&
+		!errors.Is(err, streaming.ErrRoomNotFound) {
+		return fmt.Errorf("failed to remove banned member: %w", err)
+	}
+
+	m.evictFromRoom(ctx, userID, roomID, reason)
+
+	// Tell the other nodes. Each one holds its own connections and its own
+	// room index, so without this a banned user connected elsewhere kept
+	// receiving the room until they reconnected. Sent after the store write,
+	// so a node that checks the store on receipt finds the ban there.
+	m.publishRoomBan(ctx, userID, roomID, reason, until)
 
 	if m.logger != nil {
 		m.logger.Info("user banned",
@@ -2796,15 +3163,125 @@ func (m *manager) BanUser(ctx context.Context, userID, roomID string, reason str
 	return nil
 }
 
+// banRecheckDelay is how long a node waits before looking at the store again
+// after a ban event that the store did not yet reflect. See handleRoomBan.
+const banRecheckDelay = 500 * time.Millisecond
+
+// publishRoomBan announces a ban to the other nodes, when the coordinator can
+// carry it. A failure is logged and not returned: the ban is already stored,
+// and the send and join checks, which read the store, enforce it on every
+// node regardless.
+func (m *manager) publishRoomBan(ctx context.Context, userID, roomID, reason string, until *time.Time) {
+	pub, ok := m.coordinator.(coordinator.EventPublisher)
+	if !ok {
+		return
+	}
+
+	err := pub.PublishEvent(ctx, &coordinator.CoordinatorMessage{
+		Type:    coordinator.MessageTypeRoomBan,
+		NodeID:  m.nodeID,
+		UserID:  userID,
+		RoomID:  roomID,
+		Payload: &coordinator.RoomBanEvent{Reason: reason, ExpiresAt: until},
+	})
+	if err != nil && m.logger != nil {
+		m.logger.Warn("failed to publish room ban to other nodes",
+			forge.F("user_id", userID),
+			forge.F("room_id", roomID),
+			forge.F("error", err),
+		)
+	}
+}
+
+// handleRoomBan applies a ban made on another node to this node's
+// connections.
+//
+// It evicts on receipt without asking the store first. Normally the store
+// already has the ban, since the origin writes before it publishes, but a
+// deployment whose stores are not shared would never see it, and a
+// replicated store may lag. Eviction is idempotent: a connection that is not
+// in the room is left alone and gets no notice, so a duplicate or replayed
+// event does nothing.
+//
+// When the store does not show the ban yet, the node looks again after
+// banRecheckDelay and evicts once more if it does by then. That catches a
+// user who rejoined through this node in the gap, before JoinRoom could see
+// the ban. An event for a ban that has already expired is ignored. One that
+// arrives after an unban still evicts, which costs the user a rejoin and
+// nothing else.
+func (m *manager) handleRoomBan(ctx context.Context, msg *coordinator.CoordinatorMessage) {
+	if msg.UserID == "" || msg.RoomID == "" {
+		return
+	}
+
+	var reason string
+
+	switch ev := msg.Payload.(type) {
+	case *coordinator.RoomBanEvent:
+		if ev.ExpiresAt != nil && !ev.ExpiresAt.After(time.Now()) {
+			return
+		}
+
+		reason = ev.Reason
+	case map[string]any:
+		reason, _ = ev["reason"].(string)
+	}
+
+	m.evictFromRoom(ctx, msg.UserID, msg.RoomID, reason)
+
+	if banned, err := m.roomStore.IsBanned(ctx, msg.RoomID, msg.UserID); err == nil && banned {
+		return
+	}
+
+	userID, roomID := msg.UserID, msg.RoomID
+
+	time.AfterFunc(banRecheckDelay, func() {
+		rctx, cancel := context.WithTimeout(context.Background(), coordinatorCallTimeout)
+		defer cancel()
+
+		if banned, err := m.roomStore.IsBanned(rctx, roomID, userID); err == nil && banned {
+			m.evictFromRoom(rctx, userID, roomID, reason)
+		}
+	})
+}
+
+// evictFromRoom takes the user's connections on this node out of a room and
+// tells each one why. Other nodes do the same for their own connections when
+// the ban event reaches them (handleRoomBan).
+func (m *manager) evictFromRoom(ctx context.Context, userID, roomID, reason string) {
+	for _, conn := range m.GetUserConnections(userID) {
+		if !conn.IsInRoom(roomID) {
+			continue
+		}
+
+		conn.RemoveRoom(roomID)
+		m.indexRoomLeave(roomID, conn.ID())
+
+		notice := NewLifecycleMessage(streaming.MessageTypeSystem, "room.banned")
+		notice.ID = fmt.Sprintf("ban_%d", time.Now().UnixNano())
+		notice.UserID = "system"
+		notice.RoomID = roomID
+		notice.Data = map[string]any{"reason": reason}
+
+		if err := conn.WriteJSON(notice); err != nil && m.logger != nil {
+			m.logger.Debug("failed to send ban notice",
+				forge.F("conn_id", conn.ID()),
+				forge.F("error", err),
+			)
+		}
+
+		if m.hooks != nil {
+			m.hooks.FireOnRoomLeave(ctx, conn, roomID)
+		}
+	}
+}
+
 func (m *manager) UnbanUser(ctx context.Context, userID, roomID string) error {
-	// Get the room to access moderation methods
-	room, err := m.GetRoom(ctx, roomID)
-	if err != nil {
+	if _, err := m.GetRoom(ctx, roomID); err != nil {
 		return err
 	}
 
-	// Use the room's unban functionality
-	if err := room.UnbanMember(ctx, userID); err != nil {
+	if err := m.roomStore.UnbanMember(ctx, roomID, userID); err != nil {
 		return err
 	}
 
@@ -3101,6 +3578,10 @@ func (m *manager) handleCoordinatorMessage(ctx context.Context, msg *coordinator
 
 	// Handle node lifecycle events for load balancer
 	switch msg.Type {
+	case coordinator.MessageTypeRoomBan:
+		m.handleRoomBan(ctx, msg)
+
+		return nil
 	case coordinator.MessageTypeNodeRegister:
 		m.handleNodeRegister(ctx, msg)
 
@@ -3115,14 +3596,21 @@ func (m *manager) handleCoordinatorMessage(ctx context.Context, msg *coordinator
 		return nil
 	}
 
-	// Extract the streaming message from payload
+	// Extract the streaming message from payload. The bundled coordinators
+	// decode a broadcast straight into a *Message (coordinator.DecodeMessage);
+	// the other shapes are kept for coordinators that hand over raw JSON or a
+	// generic map.
 	var streamMsg *streaming.Message
 
 	switch payload := msg.Payload.(type) {
 	case *streaming.Message:
 		streamMsg = payload
+	case json.RawMessage:
+		streamMsg = &streaming.Message{}
+		if err := json.Unmarshal(payload, streamMsg); err != nil {
+			return err
+		}
 	case map[string]any:
-		// Coordinator deserializes JSON into map — re-marshal and unmarshal
 		data, err := json.Marshal(payload)
 		if err != nil {
 			return err
@@ -3144,35 +3632,27 @@ func (m *manager) handleCoordinatorMessage(ctx context.Context, msg *coordinator
 	}
 
 	// Check message-ID-level dedup (same message may arrive via multiple paths)
-	if m.dedup != nil && streamMsg.ID != "" {
-		if m.dedup.IsDuplicate(streamMsg.ID) {
+	if d := m.dedup.Load(); d != nil && streamMsg.ID != "" {
+		if d.IsDuplicate(streamMsg.ID) {
 			return nil
 		}
 	}
 
-	// Deliver to local connections based on message type
+	// Deliver to local connections based on message type.
+	//
+	// Room delivery uses the room index, as a local broadcast does. It used to
+	// walk every connection on the node testing IsInRoom, one at a time: with
+	// 20k sockets that was about 10 ms per relayed message whatever the room's
+	// size. fanOut also shares one encoding across the recipients and spreads
+	// slow sockets over its worker pool.
 	if msg.Type == coordinator.MessageTypeBroadcast {
 		switch {
 		case msg.RoomID != "":
-			// Room broadcast — deliver to local room members only
-			conns := m.GetAllConnections()
-			for _, conn := range conns {
-				if conn.IsInRoom(msg.RoomID) {
-					_ = m.deliverToConnection(ctx, conn, streamMsg)
-				}
-			}
+			m.fanOut(ctx, m.roomRecipients(msg.RoomID), streamMsg, "room", msg.RoomID)
 		case msg.UserID != "":
-			// User-targeted — deliver to local connections for this user
-			conns := m.GetUserConnections(msg.UserID)
-			for _, conn := range conns {
-				_ = m.deliverToConnection(ctx, conn, streamMsg)
-			}
+			m.fanOut(ctx, m.GetUserConnections(msg.UserID), streamMsg, "user", msg.UserID)
 		default:
-			// Global broadcast — deliver to all local connections
-			conns := m.GetAllConnections()
-			for _, conn := range conns {
-				_ = m.deliverToConnection(ctx, conn, streamMsg)
-			}
+			m.fanOut(ctx, m.GetAllConnections(), streamMsg, "broadcast", "global")
 		}
 	}
 

@@ -1281,9 +1281,11 @@ func TestManager_ProcessMessage(t *testing.T) {
 			sender:      newTestConn("c1", "u1"),
 		},
 		{
-			name:        "rate limiter is skipped for anonymous senders",
+			// Anonymous senders used to skip the limiter entirely.
+			name:        "rate limiter applies to anonymous senders",
 			rateLimiter: &stubRateLimiter{allow: false},
 			sender:      newTestConn("c1", ""),
+			wantErr:     true,
 		},
 		{
 			name:      "validator rejects",

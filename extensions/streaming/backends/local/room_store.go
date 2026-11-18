@@ -64,6 +64,10 @@ func (s *RoomStore) Create(ctx context.Context, room streaming.Room) error {
 		localRoom.isArchived = room.IsArchived()
 	}
 
+	localRoom.mu.Lock()
+	localRoom.store = s
+	localRoom.mu.Unlock()
+
 	s.rooms[localRoom.id] = localRoom
 	s.members[localRoom.id] = make(map[string]*LocalMember)
 	s.bans[localRoom.id] = make(map[string]*streaming.RoomBan)
@@ -772,6 +776,11 @@ type LocalRoom struct {
 	category       string
 	readMarkers    map[string]string    // userID -> messageID
 	mutedMembers   map[string]time.Time // userID -> unmute time
+
+	// store is the RoomStore this room was created in, set by Create. Bans
+	// live in the store, so the room's ban methods delegate to it. A room
+	// that was never stored has none and keeps refusing them.
+	store *RoomStore
 }
 
 // NewRoom builds a LocalRoom from the given options.
@@ -928,27 +937,74 @@ func (r *LocalRoom) TransferOwnership(ctx context.Context, newOwnerID string) er
 	return nil
 }
 
+// roomStore returns the store this room belongs to, or nil.
+func (r *LocalRoom) roomStore() *RoomStore {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	return r.store
+}
+
+// BanMember bans userID through the room's store. These methods used to
+// return ErrInvalidRoom unconditionally, so Manager.BanUser, which calls them,
+// failed on every local room and nobody could be banned.
 func (r *LocalRoom) BanMember(ctx context.Context, userID string, reason string, until *time.Time) error {
-	return streaming.ErrInvalidRoom // Managed by RoomStore
+	s := r.roomStore()
+	if s == nil {
+		return streaming.ErrInvalidRoom
+	}
+
+	return s.BanMember(ctx, r.GetID(), userID, streaming.RoomBan{
+		UserID:    userID,
+		RoomID:    r.GetID(),
+		Reason:    reason,
+		BannedAt:  time.Now(),
+		ExpiresAt: until,
+	})
 }
 
 func (r *LocalRoom) UnbanMember(ctx context.Context, userID string) error {
-	return streaming.ErrInvalidRoom // Managed by RoomStore
+	s := r.roomStore()
+	if s == nil {
+		return streaming.ErrInvalidRoom
+	}
+
+	return s.UnbanMember(ctx, r.GetID(), userID)
 }
 
 func (r *LocalRoom) IsBanned(ctx context.Context, userID string) (bool, error) {
-	return false, streaming.ErrInvalidRoom // Managed by RoomStore
+	s := r.roomStore()
+	if s == nil {
+		return false, streaming.ErrInvalidRoom
+	}
+
+	return s.IsBanned(ctx, r.GetID(), userID)
 }
 
 func (r *LocalRoom) GetBannedMembers(ctx context.Context) ([]streaming.RoomBan, error) {
-	return nil, streaming.ErrInvalidRoom // Managed by RoomStore
+	s := r.roomStore()
+	if s == nil {
+		return nil, streaming.ErrInvalidRoom
+	}
+
+	return s.GetBans(ctx, r.GetID())
 }
 
+// MuteMember mutes userID until now+duration.
 func (r *LocalRoom) MuteMember(ctx context.Context, userID string, duration time.Duration) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	r.mutedMembers[userID] = time.Now().Add(duration)
+	// Reclaim expired entries here, under the write lock, rather than in
+	// IsMuted.
+	now := time.Now()
+	for uid, until := range r.mutedMembers {
+		if !until.After(now) {
+			delete(r.mutedMembers, uid)
+		}
+	}
+
+	r.mutedMembers[userID] = now.Add(duration)
 
 	return nil
 }
@@ -966,12 +1022,11 @@ func (r *LocalRoom) IsMuted(ctx context.Context, userID string) (bool, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
+	// No delete of an expired entry here: this holds only the read lock, and
+	// deleting from the map under it raced with every concurrent reader.
+	// MuteMember and UnmuteMember reclaim expired entries.
 	if muteUntil, exists := r.mutedMembers[userID]; exists {
-		if muteUntil.After(time.Now()) {
-			return true, nil
-		}
-		// Mute expired, clean it up
-		delete(r.mutedMembers, userID)
+		return muteUntil.After(time.Now()), nil
 	}
 
 	return false, nil

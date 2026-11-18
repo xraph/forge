@@ -93,6 +93,13 @@ type sendFrame struct {
 	payload []byte
 	kind    frameKind
 
+	// roomID and seq carry a room message's sequence past the encode, for
+	// transports that tag frames with a resume position. SSE writes them into
+	// the event id; without them the writer saw only bytes and every event
+	// went out with no id at all.
+	roomID string
+	seq    int64
+
 	// done belongs to frameBarrier frames and is closed once the writer has
 	// reached this point in the queue.
 	done chan struct{}
@@ -185,6 +192,13 @@ type sendQueue struct {
 	notify chan struct{} // capacity 1; a pending token means "look again"
 	done   chan struct{} // closed once the writer goroutine has returned
 
+	// stop, when set, is the transport's own done channel. An idle writer
+	// parks waiting for work, and nothing else would wake it once the peer
+	// has gone: a handler that forgot to call Close left one goroutine and
+	// its stack behind per disconnected client. Watching the transport's
+	// context makes the writer exit on its own when the connection ends.
+	stop <-chan struct{}
+
 	enqueued  atomic.Uint64
 	written   atomic.Uint64
 	dropped   atomic.Uint64
@@ -222,6 +236,12 @@ func newSendQueue(capacity int, flushTimeout, exitTimeout time.Duration,
 	}
 
 	return q
+}
+
+// stopOn makes the writer exit once ch is closed, typically the transport
+// context's Done channel. Must be called before start.
+func (q *sendQueue) stopOn(ch <-chan struct{}) {
+	q.stop = ch
 }
 
 // start launches the dedicated writer goroutine.
@@ -467,7 +487,13 @@ func (q *sendQueue) loop() error {
 		}
 
 		if len(frames) == 0 {
-			<-q.notify
+			// A nil stop channel blocks forever, so a transport without a
+			// context behaves exactly as before.
+			select {
+			case <-q.notify:
+			case <-q.stop:
+				return nil
+			}
 		}
 	}
 }

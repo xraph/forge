@@ -83,57 +83,47 @@ func (nc *natsCoordinator) Start(ctx context.Context) error {
 		return errors.New("coordinator already running")
 	}
 
-	// Subscribe to global broadcasts
-	sub1, err := nc.js.QueueSubscribe(
+	// Every subject here is a plain subscription with its own ephemeral
+	// consumer, so every node receives every message.
+	//
+	// They used to share the "streaming-workers" queue group, which hands
+	// each message to exactly one member of the group. That is right for a
+	// work queue and wrong for all of these: a global broadcast, a ban event,
+	// a room broadcast, a presence or room state update each have to reach
+	// every node, because every node holds its own connections and its own
+	// view. With the queue group each one reached a single node chosen at
+	// random. Nothing the coordinator carries is a job for one worker; the
+	// node subject is addressed to one node already, and only that node
+	// subscribes to it.
+	//
+	// DeliverNew because the streams retain messages (an hour for
+	// broadcasts). A node that starts must not replay that backlog to its
+	// clients as if it were live.
+	//
+	// The room subject had no subscriber at all, so BroadcastToRoom never
+	// reached another node.
+	subjects := []string{
 		"streaming.broadcast.global",
-		"streaming-workers",
-		nc.messageHandler,
-		nats.ManualAck(),
-	)
-	if err != nil {
-		return fmt.Errorf("failed to subscribe to global broadcasts: %w", err)
-	}
-
-	nc.subs = append(nc.subs, sub1)
-
-	// Subscribe to node-specific broadcasts
-	sub2, err := nc.js.QueueSubscribe(
-		"streaming.broadcast.node."+nc.nodeID,
-		"streaming-workers",
-		nc.messageHandler,
-		nats.ManualAck(),
-	)
-	if err != nil {
-		return fmt.Errorf("failed to subscribe to node broadcasts: %w", err)
-	}
-
-	nc.subs = append(nc.subs, sub2)
-
-	// Subscribe to presence updates
-	sub3, err := nc.js.QueueSubscribe(
+		"streaming.broadcast.node." + nc.nodeID,
+		"streaming.broadcast.room.>",
 		"streaming.presence.*",
-		"streaming-workers",
-		nc.messageHandler,
-		nats.ManualAck(),
-	)
-	if err != nil {
-		return fmt.Errorf("failed to subscribe to presence updates: %w", err)
-	}
-
-	nc.subs = append(nc.subs, sub3)
-
-	// Subscribe to state updates
-	sub4, err := nc.js.QueueSubscribe(
 		"streaming.state.rooms.*",
-		"streaming-workers",
-		nc.messageHandler,
-		nats.ManualAck(),
-	)
-	if err != nil {
-		return fmt.Errorf("failed to subscribe to state updates: %w", err)
 	}
 
-	nc.subs = append(nc.subs, sub4)
+	for _, subject := range subjects {
+		sub, err := nc.js.Subscribe(subject, nc.messageHandler, nats.ManualAck(), nats.DeliverNew())
+		if err != nil {
+			for _, s := range nc.subs {
+				_ = s.Unsubscribe()
+			}
+
+			nc.subs = nil
+
+			return fmt.Errorf("failed to subscribe to %s: %w", subject, err)
+		}
+
+		nc.subs = append(nc.subs, sub)
+	}
 
 	nc.running = true
 
@@ -163,21 +153,26 @@ func (nc *natsCoordinator) Stop(ctx context.Context) error {
 }
 
 // BroadcastToNode sends message to specific node.
+//
+// NodeID is the sender, as on every other message, and the subject carries
+// the target. It used to be the target, so the target's own-message check
+// matched and it dropped every message addressed to it.
 func (nc *natsCoordinator) BroadcastToNode(ctx context.Context, nodeID string, msg *streaming.Message) error {
-	coordMsg := &CoordinatorMessage{
+	return nc.publishToNode(nodeID, &CoordinatorMessage{
 		Type:      MessageTypeBroadcast,
-		NodeID:    nodeID,
+		NodeID:    nc.nodeID,
 		Payload:   msg,
 		Timestamp: time.Now(),
-	}
+	})
+}
 
+func (nc *natsCoordinator) publishToNode(nodeID string, coordMsg *CoordinatorMessage) error {
 	data, err := json.Marshal(coordMsg)
 	if err != nil {
 		return fmt.Errorf("failed to marshal message: %w", err)
 	}
 
-	subject := "streaming.broadcast.node." + nodeID
-	_, err = nc.js.Publish(subject, data)
+	_, err = nc.js.Publish("streaming.broadcast.node."+nodeID, data)
 
 	return err
 }
@@ -190,9 +185,17 @@ func (nc *natsCoordinator) BroadcastToUser(ctx context.Context, userID string, m
 		return err
 	}
 
-	// Broadcast to each node
+	// Broadcast to each node, naming the user. Without UserID the receiving
+	// manager treats a node message as global and would hand one user's
+	// message to every connection on that node.
 	for _, nodeID := range nodes {
-		if err := nc.BroadcastToNode(ctx, nodeID, msg); err != nil {
+		if err := nc.publishToNode(nodeID, &CoordinatorMessage{
+			Type:      MessageTypeBroadcast,
+			NodeID:    nc.nodeID,
+			UserID:    userID,
+			Payload:   msg,
+			Timestamp: time.Now(),
+		}); err != nil {
 			// Log error but continue
 			continue
 		}
@@ -205,6 +208,7 @@ func (nc *natsCoordinator) BroadcastToUser(ctx context.Context, userID string, m
 func (nc *natsCoordinator) BroadcastToRoom(ctx context.Context, roomID string, msg *streaming.Message) error {
 	coordMsg := &CoordinatorMessage{
 		Type:      MessageTypeBroadcast,
+		NodeID:    nc.nodeID,
 		RoomID:    roomID,
 		Payload:   msg,
 		Timestamp: time.Now(),
@@ -221,10 +225,12 @@ func (nc *natsCoordinator) BroadcastToRoom(ctx context.Context, roomID string, m
 	return err
 }
 
-// BroadcastGlobal sends to all nodes.
+// BroadcastGlobal sends to all nodes. NodeID names the sender so it skips its
+// own message, as on Redis; it has already delivered locally.
 func (nc *natsCoordinator) BroadcastGlobal(ctx context.Context, msg *streaming.Message) error {
 	coordMsg := &CoordinatorMessage{
 		Type:      MessageTypeBroadcast,
+		NodeID:    nc.nodeID,
 		Payload:   msg,
 		Timestamp: time.Now(),
 	}
@@ -243,6 +249,7 @@ func (nc *natsCoordinator) BroadcastGlobal(ctx context.Context, msg *streaming.M
 func (nc *natsCoordinator) SyncPresence(ctx context.Context, presence *streaming.UserPresence) error {
 	coordMsg := &CoordinatorMessage{
 		Type:      MessageTypePresenceUpdate,
+		NodeID:    nc.nodeID,
 		UserID:    presence.UserID,
 		Payload:   presence,
 		Timestamp: time.Now(),
@@ -263,6 +270,7 @@ func (nc *natsCoordinator) SyncPresence(ctx context.Context, presence *streaming
 func (nc *natsCoordinator) SyncRoomState(ctx context.Context, roomID string, state *RoomState) error {
 	coordMsg := &CoordinatorMessage{
 		Type:      MessageTypeRoomStateSync,
+		NodeID:    nc.nodeID,
 		RoomID:    roomID,
 		Payload:   state,
 		Timestamp: time.Now(),
@@ -420,6 +428,27 @@ func (nc *natsCoordinator) UnregisterNode(ctx context.Context, nodeID string) er
 	return err
 }
 
+// PublishEvent implements EventPublisher on the global subject, which every
+// node subscribes to.
+func (nc *natsCoordinator) PublishEvent(ctx context.Context, msg *CoordinatorMessage) error {
+	if msg.NodeID == "" {
+		msg.NodeID = nc.nodeID
+	}
+
+	if msg.Timestamp.IsZero() {
+		msg.Timestamp = time.Now()
+	}
+
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal coordinator event: %w", err)
+	}
+
+	_, err = nc.js.Publish("streaming.broadcast.global", data, nats.Context(ctx))
+
+	return err
+}
+
 // Subscribe subscribes to coordinator events.
 func (nc *natsCoordinator) Subscribe(ctx context.Context, handler MessageHandler) error {
 	nc.handler = handler
@@ -437,8 +466,8 @@ func (nc *natsCoordinator) messageHandler(msg *nats.Msg) {
 		return
 	}
 
-	var coordMsg CoordinatorMessage
-	if err := json.Unmarshal(msg.Data, &coordMsg); err != nil {
+	coordMsg, err := DecodeMessage(msg.Data)
+	if err != nil {
 		_ = msg.Nak()
 
 		return
@@ -453,7 +482,7 @@ func (nc *natsCoordinator) messageHandler(msg *nats.Msg) {
 
 	// Call handler
 	ctx := context.Background()
-	if err := nc.handler(ctx, &coordMsg); err != nil {
+	if err := nc.handler(ctx, coordMsg); err != nil {
 		_ = msg.Nak()
 
 		return
