@@ -261,11 +261,11 @@ func (r *RESTGenerator) generateArrowFunction(buf *strings.Builder, methodName s
 	fmt.Fprintf(buf, "%s/**\n", indentStr)
 
 	if endpoint.Summary != "" {
-		fmt.Fprintf(buf, "%s * %s\n", indentStr, endpoint.Summary)
+		buf.WriteString(jsdocBody(endpoint.Summary, indentStr+" * "))
 	}
 
 	if endpoint.Description != "" {
-		fmt.Fprintf(buf, "%s * %s\n", indentStr, endpoint.Description)
+		buf.WriteString(jsdocBody(endpoint.Description, indentStr+" * "))
 	}
 
 	if endpoint.Deprecated {
@@ -328,10 +328,10 @@ func (r *RESTGenerator) generateMethodBody(buf *strings.Builder, endpoint *clien
 		for _, param := range endpoint.QueryParams {
 			paramName := r.toTSParamName(param.Name)
 			if param.Required {
-				fmt.Fprintf(buf, "%squeryParams['%s'] = %s;\n", indentStr, param.Name, paramName)
+				fmt.Fprintf(buf, "%squeryParams[%s] = %s;\n", indentStr, jsonString(param.Name), paramName)
 			} else {
 				fmt.Fprintf(buf, "%sif (%s !== undefined) {\n", indentStr, paramName)
-				fmt.Fprintf(buf, "%s  queryParams['%s'] = %s;\n", indentStr, param.Name, paramName)
+				fmt.Fprintf(buf, "%s  queryParams[%s] = %s;\n", indentStr, jsonString(param.Name), paramName)
 				fmt.Fprintf(buf, "%s}\n", indentStr)
 			}
 		}
@@ -384,9 +384,9 @@ func (r *RESTGenerator) generateMethodBody(buf *strings.Builder, endpoint *clien
 		for _, param := range endpoint.HeaderParams {
 			paramName := r.toTSParamName(param.Name)
 			if param.Required {
-				fmt.Fprintf(buf, "%s    '%s': %s,\n", indentStr, param.Name, paramName)
+				fmt.Fprintf(buf, "%s    %s: %s,\n", indentStr, jsonString(param.Name), paramName)
 			} else {
-				fmt.Fprintf(buf, "%s    ...(%s ? { '%s': %s } : {}),\n", indentStr, paramName, param.Name, paramName)
+				fmt.Fprintf(buf, "%s    ...(%s ? { %s: %s } : {}),\n", indentStr, paramName, jsonString(param.Name), paramName)
 			}
 		}
 
@@ -1021,13 +1021,19 @@ func (r *RESTGenerator) responseBodyType(resp *client.Response, spec *client.API
 }
 
 // generatePathExpression generates the path expression with parameters.
+//
+// The path is specification text placed inside a template literal, so its
+// backticks, backslashes and "${" are escaped first: a path key containing
+// "`+(globalThis.X=1)+`" otherwise closed the literal and ran on every call.
+// Placeholders are escaped the same way before they are looked up, so they
+// still match the escaped path.
 func (r *RESTGenerator) generatePathExpression(endpoint client.Endpoint) string {
-	path := endpoint.Path
+	path := escapeTemplateLiteral(endpoint.Path)
 
 	// Replace path parameters with template literals
 	for _, param := range endpoint.PathParams {
 		paramName := r.toTSParamName(param.Name)
-		placeholder := fmt.Sprintf("{%s}", param.Name)
+		placeholder := escapeTemplateLiteral(fmt.Sprintf("{%s}", param.Name))
 		// Path segments must be escaped: an unencoded '/' or '?' in a value
 		// silently changes which route the request reaches.
 		path = strings.ReplaceAll(path, placeholder, "${encodeURIComponent(String("+paramName+"))}")
@@ -1103,8 +1109,17 @@ func (r *RESTGenerator) schemaToTSType(schema *client.Schema, spec *client.APISp
 }
 
 // toTSParamName converts a parameter name to TypeScript naming convention (camelCase).
+//
+// The camelCased name is reduced to identifier characters because it is
+// printed as a function parameter: a query parameter named
+// "q'] = (globalThis.X=1); y['z" otherwise reached the signature and the body
+// as code. A name with nothing usable left becomes "param".
 func (r *RESTGenerator) toTSParamName(name string) string {
-	value := r.toCamelCase(name)
+	value := tsIdent(r.toCamelCase(name))
+	if value == "" {
+		return "param"
+	}
+
 	switch value {
 	case "class", "default", "delete", "export", "extends", "function", "import", "new", "return", "super", "switch", "throw", "typeof", "var", "const", "let", "in", "instanceof", "for", "while", "if", "else", "try", "catch", "finally", "with", "yield", "await", "enum", "implements", "interface", "package", "private", "protected", "public", "static", "break", "case", "continue", "debugger", "do", "void", "null", "true", "false":
 		return value + "Param"

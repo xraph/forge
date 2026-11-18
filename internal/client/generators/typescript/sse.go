@@ -236,7 +236,7 @@ func (s *SSEGenerator) generateSSEClient(sse client.SSEEndpoint, spec *client.AP
 	fmt.Fprintf(&buf, "/**\n * %s\n", className)
 
 	if sse.Description != "" {
-		fmt.Fprintf(&buf, " * %s\n", sse.Description)
+		buf.WriteString(jsdocBody(sse.Description, " * "))
 	}
 
 	buf.WriteString(" * \n")
@@ -308,7 +308,7 @@ func (s *SSEGenerator) generateSSEClient(sse client.SSEEndpoint, spec *client.AP
 	}
 
 	// Build URL with query parameters for auth in browser
-	fmt.Fprintf(&buf, "      let url = this.config.baseURL + '%s';\n", sse.Path)
+	fmt.Fprintf(&buf, "      let url = this.config.baseURL + %s;\n", jsonString(sse.Path))
 	buf.WriteString("      \n")
 	buf.WriteString("      // In browser, add auth as query params since EventSource doesn't support custom headers\n")
 	buf.WriteString("      if (isBrowser) {\n")
@@ -432,7 +432,7 @@ func (s *SSEGenerator) generateSSEClient(sse client.SSEEndpoint, spec *client.AP
 			}
 		}
 
-		fmt.Fprintf(&buf, "        this.eventSource.addEventListener('%s', (event: MessageEvent) => {\n", eventName)
+		fmt.Fprintf(&buf, "        this.eventSource.addEventListener(%s, (event: MessageEvent) => {\n", jsonString(eventName))
 		buf.WriteString("          try {\n")
 
 		if config.Features.Reconnection {
@@ -442,7 +442,7 @@ func (s *SSEGenerator) generateSSEClient(sse client.SSEEndpoint, spec *client.AP
 		}
 
 		fmt.Fprintf(&buf, "            const data: %s = %s;\n", typeName, wireDecodeExpr(codecID, "JSON.parse(event.data)"))
-		fmt.Fprintf(&buf, "            this.emit('%s', data);\n", eventName)
+		fmt.Fprintf(&buf, "            this.emit(%s, data);\n", jsonString(eventName))
 		buf.WriteString("          } catch (error) {\n")
 		buf.WriteString("            this.emit('error', error);\n")
 		buf.WriteString("          }\n")
@@ -470,7 +470,7 @@ func (s *SSEGenerator) generateSSEClient(sse client.SSEEndpoint, spec *client.AP
 			continue
 		}
 
-		fmt.Fprintf(&buf, "        this.eventSource.addEventListener('%s', (event: MessageEvent) => {\n", eventName)
+		fmt.Fprintf(&buf, "        this.eventSource.addEventListener(%s, (event: MessageEvent) => {\n", jsonString(eventName))
 		buf.WriteString("          try {\n")
 
 		if config.Features.Reconnection {
@@ -480,7 +480,7 @@ func (s *SSEGenerator) generateSSEClient(sse client.SSEEndpoint, spec *client.AP
 		}
 
 		buf.WriteString("            const data: unknown = JSON.parse(event.data);\n")
-		fmt.Fprintf(&buf, "            this.emit('%s', data);\n", eventName)
+		fmt.Fprintf(&buf, "            this.emit(%s, data);\n", jsonString(eventName))
 		buf.WriteString("          } catch (error) {\n")
 		buf.WriteString("            this.emit('error', error);\n")
 		buf.WriteString("          }\n")
@@ -512,20 +512,25 @@ func (s *SSEGenerator) generateSSEClient(sse client.SSEEndpoint, spec *client.AP
 	for _, eventName := range sortedKeys(sse.EventSchemas) {
 		schema := sse.EventSchemas[eventName]
 		typeName := s.getSchemaTypeName(schema, spec)
-		methodName := s.toPascalCase(eventName)
+		docName := jsdocInline(eventName)
 
-		fmt.Fprintf(&buf, "  /**\n   * Register a handler for %s events.\n", eventName)
-		fmt.Fprintf(&buf, "   * @param handler - Function to call when %s event is received\n", eventName)
+		methodName := tsIdent(s.toPascalCase(eventName))
+		if methodName == "" {
+			methodName = "Event"
+		}
+
+		fmt.Fprintf(&buf, "  /**\n   * Register a handler for %s events.\n", docName)
+		fmt.Fprintf(&buf, "   * @param handler - Function to call when %s event is received\n", docName)
 		buf.WriteString("   */\n")
 		fmt.Fprintf(&buf, "  on%s(handler: (data: %s) => void): void {\n", methodName, typeName)
-		fmt.Fprintf(&buf, "    this.on('%s', handler);\n", eventName)
+		fmt.Fprintf(&buf, "    this.on(%s, handler);\n", jsonString(eventName))
 		buf.WriteString("  }\n\n")
 
-		fmt.Fprintf(&buf, "  /**\n   * Remove a handler for %s events.\n", eventName)
+		fmt.Fprintf(&buf, "  /**\n   * Remove a handler for %s events.\n", docName)
 		buf.WriteString("   * @param handler - The handler to remove\n")
 		buf.WriteString("   */\n")
 		fmt.Fprintf(&buf, "  off%s(handler: (data: %s) => void): void {\n", methodName, typeName)
-		fmt.Fprintf(&buf, "    this.off('%s', handler);\n", eventName)
+		fmt.Fprintf(&buf, "    this.off(%s, handler);\n", jsonString(eventName))
 		buf.WriteString("  }\n\n")
 	}
 
@@ -656,7 +661,7 @@ func (s *SSEGenerator) generateSSEClient(sse client.SSEEndpoint, spec *client.AP
 // generateClassName generates a class name for an SSE endpoint.
 func (s *SSEGenerator) generateClassName(sse client.SSEEndpoint) string {
 	if sse.ID != "" {
-		return s.toPascalCase(sse.ID) + "SSEClient"
+		return tsIdent(s.toPascalCase(sse.ID)) + "SSEClient"
 	}
 
 	return "SSEClient"

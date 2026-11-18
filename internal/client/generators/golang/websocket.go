@@ -2,6 +2,7 @@ package golang
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/xraph/forge/internal/client"
@@ -103,13 +104,13 @@ func (w *WebSocketGenerator) Generate(spec *client.APISpec, config client.Genera
 func (w *WebSocketGenerator) generateWebSocketClient(ws client.WebSocketEndpoint, spec *client.APISpec, config client.GeneratorConfig, needsAuth bool) string {
 	var buf strings.Builder
 
-	clientName := client.GenerateWebSocketClientName(ws)
+	clientName := goIdent(client.GenerateWebSocketClientName(ws))
 
 	// Client struct
-	fmt.Fprintf(&buf, "// %s is a WebSocket client for %s\n", clientName, ws.Path)
+	fmt.Fprintf(&buf, "// %s is a WebSocket client for %s\n", clientName, goInlineComment(ws.Path))
 
 	if ws.Description != "" {
-		fmt.Fprintf(&buf, "// %s\n", ws.Description)
+		buf.WriteString(goComment(ws.Description))
 	}
 
 	fmt.Fprintf(&buf, "type %s struct {\n", clientName)
@@ -197,7 +198,7 @@ func (w *WebSocketGenerator) generateConnectMethod(clientName string, ws client.
 
 	// Named endpoint, not url: a local named url would shadow the net/url
 	// package import this function now needs to parse the handshake target.
-	fmt.Fprintf(&buf, "\tendpoint := ws.client.buildURL(\"%s\")\n", ws.Path)
+	fmt.Fprintf(&buf, "\tendpoint := ws.client.buildURL(%s)\n", strconv.Quote(ws.Path))
 	buf.WriteString("\tendpoint = \"ws\" + endpoint[4:] // Convert http(s) to ws(s)\n\n")
 
 	// dialHeader stays http.Header(nil) when no scheme is declared: client.go

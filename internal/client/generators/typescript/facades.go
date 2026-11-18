@@ -360,5 +360,7 @@ func hookName(id string) string {
 		return "use"
 	}
 
-	return "use" + toPascal(id)
+	// tsIdent because id comes from an operationId, which is free text, and
+	// the result is printed as an exported function name.
+	return "use" + tsIdent(toPascal(id))
 }

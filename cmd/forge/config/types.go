@@ -84,6 +84,11 @@ type DockerDevConfig struct {
 	Env        map[string]string `yaml:"env,omitempty"`        // Extra env vars for the container.
 	BuildArgs  map[string]string `yaml:"build_args,omitempty"` // Docker build args.
 	Platform   string            `yaml:"platform,omitempty"`   // Target platform (e.g., linux/amd64).
+
+	// PublishAddress is the host address the app's port is published on.
+	// Empty means 127.0.0.1, so a dev server is not reachable from the rest
+	// of the network by default; set 0.0.0.0 to expose it on every interface.
+	PublishAddress string `yaml:"publish_address,omitempty"`
 }
 
 // GetImage returns the Docker base image with default fallback.
@@ -93,6 +98,16 @@ func (d *DockerDevConfig) GetImage() string {
 	}
 
 	return "golang:1.25-alpine"
+}
+
+// GetPublishAddress returns the host address to publish the app port on,
+// defaulting to loopback.
+func (d *DockerDevConfig) GetPublishAddress() string {
+	if d.PublishAddress != "" {
+		return d.PublishAddress
+	}
+
+	return "127.0.0.1"
 }
 
 // GetNetwork returns the Docker network with default fallback.

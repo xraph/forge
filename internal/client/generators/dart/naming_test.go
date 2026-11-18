@@ -1,6 +1,13 @@
 package dart
 
-import "testing"
+import (
+	"context"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/xraph/forge/internal/client"
+)
 
 func TestTypeIdent(t *testing.T) {
 	cases := map[string]string{
@@ -154,6 +161,59 @@ func TestMemberIdentEscapesEveryReservedClass(t *testing.T) {
 	for _, c := range cases {
 		if got := memberIdent(c.in, c.reserved); got != c.want {
 			t.Errorf("%s: memberIdent(%q) = %q, want %q", c.kind, c.in, got, c.want)
+		}
+	}
+}
+
+// Dart ends a `///` comment at "\r" as well as "\n". Splitting on "\n" alone
+// left a bare "\r" inside a line, which ended the comment there and let the
+// rest of the description compile as code.
+func TestDocCommentKeepsCarriageReturnsInsideTheComment(t *testing.T) {
+	for _, text := range []string{
+		"pdesc\rfinal pwnDartProp = 1;",
+		"pdesc\r\nfinal pwnDartProp = 1;",
+		"pdesc\nfinal pwnDartProp = 1;",
+	} {
+		got := docComment(text, "fallback", "  ")
+		want := "  /// pdesc\n  /// final pwnDartProp = 1;\n"
+
+		if got != want {
+			t.Errorf("docComment(%q) = %q, want %q", text, got, want)
+		}
+
+		if strings.Contains(got, "\r") {
+			t.Errorf("docComment(%q) kept a carriage return: %q", text, got)
+		}
+	}
+}
+
+func TestGeneratedDartKeepsDescriptionPayloadsInComments(t *testing.T) {
+	spec, err := client.NewSpecParser().ParseFile(context.Background(),
+		filepath.Join("..", "..", "testdata", "injection", "evil.json"))
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+
+	cfg := client.DefaultConfig()
+	cfg.Language = "dart"
+	cfg.PackageName = "probe"
+
+	out, err := (&Generator{}).Generate(context.Background(), spec, cfg)
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+
+	for name, src := range out.Files {
+		if strings.Contains(src, "\r") {
+			t.Errorf("%s contains a carriage return", name)
+		}
+
+		// Split the way Dart does, on either line break.
+		for line := range strings.SplitSeq(strings.ReplaceAll(src, "\r", "\n"), "\n") {
+			trimmed := strings.TrimSpace(line)
+			if strings.Contains(trimmed, "pwnDart") && !strings.HasPrefix(trimmed, "//") {
+				t.Errorf("%s: description payload reached code: %s", name, line)
+			}
 		}
 	}
 }

@@ -263,7 +263,7 @@ func (t *TypingGenerator) generateTypingClient(spec *client.APISpec, config clie
 		wsPath = spec.Streaming.Typing.Path
 	}
 
-	fmt.Fprintf(&buf, "      let wsURL = this.config.baseURL.replace(/^http/, 'ws') + '%s';\n\n", wsPath)
+	fmt.Fprintf(&buf, "      let wsURL = this.config.baseURL.replace(/^http/, 'ws') + %s;\n\n", jsonString(wsPath))
 
 	if config.IncludeAuth {
 		buf.WriteString("      // Add auth to URL for browser compatibility\n")

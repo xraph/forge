@@ -320,7 +320,7 @@ func (w *WebTransportGenerator) generateWebTransportClient(wt client.WebTranspor
 	fmt.Fprintf(&buf, "/**\n * %s\n", className)
 
 	if wt.Description != "" {
-		fmt.Fprintf(&buf, " * %s\n", wt.Description)
+		buf.WriteString(jsdocBody(wt.Description, " * "))
 	}
 
 	buf.WriteString(" * \n")
@@ -381,7 +381,7 @@ func (w *WebTransportGenerator) generateWebTransportClient(wt client.WebTranspor
 
 	// Connect method with timeout
 	buf.WriteString("  /**\n")
-	fmt.Fprintf(&buf, "   * Connect to WebTransport endpoint %s\n", wt.Path)
+	fmt.Fprintf(&buf, "   * Connect to WebTransport endpoint %s\n", jsdocInline(wt.Path))
 	buf.WriteString("   * @returns Promise that resolves when connected\n")
 	buf.WriteString("   * @throws Error if connection fails or times out\n")
 	buf.WriteString("   */\n")
@@ -393,7 +393,7 @@ func (w *WebTransportGenerator) generateWebTransportClient(wt client.WebTranspor
 	buf.WriteString("    this.setState(WebTransportState.CONNECTING);\n")
 	buf.WriteString("    this.closed = false;\n\n")
 
-	fmt.Fprintf(&buf, "    let wtURL = this.config.baseURL.replace(/^http/, 'https') + '%s';\n\n", wt.Path)
+	fmt.Fprintf(&buf, "    let wtURL = this.config.baseURL.replace(/^http/, 'https') + %s;\n\n", jsonString(wt.Path))
 
 	// Add auth to URL. Gated on config.IncludeAuth for the same reason the
 	// WebTransportClientConfig.auth field declaration itself is: referencing
@@ -1224,7 +1224,7 @@ func (w *WebTransportGenerator) generateReconnection() string {
 // generateClassName generates a class name for a WebTransport endpoint.
 func (w *WebTransportGenerator) generateClassName(wt client.WebTransportEndpoint) string {
 	if wt.ID != "" {
-		return w.toPascalCase(wt.ID) + "WTClient"
+		return tsIdent(w.toPascalCase(wt.ID)) + "WTClient"
 	}
 
 	return "WebTransportClient"

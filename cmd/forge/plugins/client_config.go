@@ -4,9 +4,12 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/xraph/forge/errors"
@@ -77,6 +80,11 @@ type SourceConfig struct {
 
 	// Auto-discovery paths (when type=auto)
 	AutoDiscoverPaths []string `yaml:"auto_discover_paths,omitempty"`
+
+	// AllowInsecureHTTP permits fetching a spec over plain http from a host
+	// other than localhost. Off by default; the --allow-insecure-http flag
+	// does the same for one run.
+	AllowInsecureHTTP bool `yaml:"allow_insecure_http,omitempty"`
 }
 
 // Entries normalises this configuration into the list of documents to read.
@@ -347,12 +355,53 @@ func SaveClientConfig(config *ClientConfig, path string) error {
 	return nil
 }
 
+// maxSpecBytes caps how much of a fetched spec is read. A real OpenAPI or
+// AsyncAPI document is a few megabytes at most, and without a cap a
+// misbehaving or hostile server could stream until the CLI runs out of
+// memory. A variable rather than a constant so tests can lower it.
+var maxSpecBytes int64 = 64 << 20
+
+// insecureHTTPOptIn names both ways to allow a plain http spec URL, for the
+// error that refuses one.
+const insecureHTTPOptIn = "pass --allow-insecure-http or set source.allow_insecure_http: true in .forge-client.yml"
+
+// checkSpecURL refuses a plain http spec URL unless it points at this machine
+// or the caller opted in. A spec fetched over the network in cleartext can be
+// swapped in transit, and the generated client is code that ships, so a
+// silent downgrade is not acceptable. Loopback stays allowed because a local
+// dev server is the common case and its traffic never leaves the host.
+func checkSpecURL(u *url.URL, allowInsecureHTTP bool) error {
+	if !strings.EqualFold(u.Scheme, "http") || allowInsecureHTTP || isLoopbackHost(u.Hostname()) {
+		return nil
+	}
+
+	return fmt.Errorf("refusing to fetch spec over plain http from %s: use https, or %s", u.Host, insecureHTTPOptIn)
+}
+
+// isLoopbackHost reports whether host is localhost or a loopback IP
+// (127.0.0.0/8 or ::1). Other names are not resolved: a name that resolves to
+// loopback today may not tomorrow, and resolving here would not bind the
+// request to the address that was checked.
+func isLoopbackHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+
+	ip := net.ParseIP(host)
+
+	return ip != nil && ip.IsLoopback()
+}
+
 // fetchSpecFromURL fetches an OpenAPI/AsyncAPI spec from a URL.
 //
 // ctx is the caller's cancellation context, not context.Background(): a
 // watch's Ctrl+C has to reach an in-flight fetch, or the process outlives the
 // signal that was supposed to stop it.
-func fetchSpecFromURL(ctx context.Context, url string, timeout time.Duration) ([]byte, error) {
+//
+// Plain http is refused for anything but loopback unless allowInsecureHTTP is
+// set (see checkSpecURL), including on a redirect, and the body is capped at
+// maxSpecBytes.
+func fetchSpecFromURL(ctx context.Context, rawURL string, timeout time.Duration, allowInsecureHTTP bool) ([]byte, error) {
 	if timeout == 0 {
 		timeout = 30 * time.Second
 	}
@@ -360,14 +409,31 @@ func fetchSpecFromURL(ctx context.Context, url string, timeout time.Duration) ([
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 
+	if err := checkSpecURL(req.URL, allowInsecureHTTP); err != nil {
+		return nil, err
+	}
+
 	req.Header.Set("Accept", "application/json, application/yaml, application/x-yaml, text/yaml")
 
-	resp, err := http.DefaultClient.Do(req)
+	// An https URL that redirects to plain http would otherwise bypass the
+	// check above, so every hop is checked the same way. The hop limit matches
+	// net/http's default policy, which a custom CheckRedirect replaces.
+	httpClient := &http.Client{
+		CheckRedirect: func(next *http.Request, via []*http.Request) error {
+			if len(via) >= 10 {
+				return errors.New("stopped after 10 redirects")
+			}
+
+			return checkSpecURL(next.URL, allowInsecureHTTP)
+		},
+	}
+
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("fetch spec: %w", err)
 	}
@@ -377,9 +443,15 @@ func fetchSpecFromURL(ctx context.Context, url string, timeout time.Duration) ([
 		return nil, fmt.Errorf("fetch spec failed with status: %d", resp.StatusCode)
 	}
 
-	data, err := io.ReadAll(resp.Body)
+	// One byte past the cap is read so a body of exactly maxSpecBytes is
+	// accepted and anything longer is reported rather than silently truncated.
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxSpecBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("read response: %w", err)
+	}
+
+	if int64(len(data)) > maxSpecBytes {
+		return nil, fmt.Errorf("spec is larger than the %d MB limit", maxSpecBytes>>20)
 	}
 
 	return data, nil

@@ -211,8 +211,26 @@ func writeRestMembers(b *strings.Builder, node *restNode, paths map[*operation]s
 	}
 }
 
+// methodPlaceholder opens the line writeRestMembers leaves where a method
+// goes; the operation's path and "@@\n" close it.
+const methodPlaceholder = "  @@method:"
+
 // expandMethods replaces each method placeholder with the rendered method.
+//
+// It walks the text once, writing into a single builder. It used to call
+// strings.Replace over the whole file once per operation, and since every
+// replacement made the file longer, generation time grew with the square of
+// the operation count: 4000 operations took about three seconds in this
+// function alone.
+//
+// Each placeholder takes the next method rendered for its path, in operation
+// order, which is the pairing the per-operation replace produced. Text that a
+// rendered method carries is never searched again, so a summary that happens
+// to contain a placeholder cannot be expanded by accident.
 func expandMethods(text string, ops []*operation, paths map[*operation]string, codecConst func(string) string) string {
+	rendered := make(map[string][]string, len(ops))
+	size := len(text)
+
 	for _, op := range ops {
 		path := paths[op]
 		segments := strings.Split(path, ".")
@@ -223,10 +241,50 @@ func expandMethods(text string, ops []*operation, paths map[*operation]string, c
 			receiver = ""
 		}
 
-		text = strings.Replace(text, "  @@method:"+path+"@@\n", renderRestMethod(op, name, receiver, codecConst), 1)
+		method := renderRestMethod(op, name, receiver, codecConst)
+		rendered[path] = append(rendered[path], method)
+		size += len(method)
 	}
 
-	return text
+	var b strings.Builder
+
+	b.Grow(size)
+
+	for {
+		start := strings.Index(text, methodPlaceholder)
+		if start < 0 {
+			break
+		}
+
+		pathStart := start + len(methodPlaceholder)
+
+		pathLen := strings.Index(text[pathStart:], "@@\n")
+		if pathLen < 0 {
+			break
+		}
+
+		end := pathStart + pathLen + len("@@\n")
+		path := text[pathStart : pathStart+pathLen]
+
+		queue := rendered[path]
+		if len(queue) == 0 {
+			// No operation claims this placeholder; leave it exactly as the
+			// per-operation replace did.
+			b.WriteString(text[:end])
+			text = text[end:]
+
+			continue
+		}
+
+		b.WriteString(text[:start])
+		b.WriteString(queue[0])
+		rendered[path] = queue[1:]
+		text = text[end:]
+	}
+
+	b.WriteString(text)
+
+	return b.String()
 }
 
 // renderRestMethod renders one operation's method.

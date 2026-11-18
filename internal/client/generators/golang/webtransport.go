@@ -2,6 +2,7 @@ package golang
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/xraph/forge/internal/client"
@@ -114,10 +115,10 @@ func (w *WebTransportGenerator) generateWebTransportClient(wt client.WebTranspor
 	className := w.generateClassName(wt)
 
 	// Client documentation
-	fmt.Fprintf(&buf, "// %s is a WebTransport client for %s\n", className, wt.Path)
+	fmt.Fprintf(&buf, "// %s is a WebTransport client for %s\n", className, goInlineComment(wt.Path))
 
 	if wt.Description != "" {
-		fmt.Fprintf(&buf, "// %s\n", wt.Description)
+		buf.WriteString(goComment(wt.Description))
 	}
 
 	// Client struct
@@ -178,7 +179,7 @@ func (w *WebTransportGenerator) generateWebTransportClient(wt client.WebTranspor
 	buf.WriteString("}\n\n")
 
 	// Connect method
-	fmt.Fprintf(&buf, "// Connect establishes a WebTransport connection to %s\n", wt.Path)
+	fmt.Fprintf(&buf, "// Connect establishes a WebTransport connection to %s\n", goInlineComment(wt.Path))
 	fmt.Fprintf(&buf, "func (c *%s) Connect(ctx context.Context) error {\n", className)
 	buf.WriteString("\tc.mu.Lock()\n")
 	buf.WriteString("\tdefer c.mu.Unlock()\n\n")
@@ -186,7 +187,7 @@ func (w *WebTransportGenerator) generateWebTransportClient(wt client.WebTranspor
 	buf.WriteString("\tc.setState(WebTransportStateConnecting)\n\n")
 
 	buf.WriteString("\t// Build WebTransport URL\n")
-	fmt.Fprintf(&buf, "\twtURL := c.baseURL + \"%s\"\n\n", wt.Path)
+	fmt.Fprintf(&buf, "\twtURL := c.baseURL + %s\n\n", strconv.Quote(wt.Path))
 
 	// dialHeader stays nil when no scheme is declared: client.go never
 	// declares AuthConfig in that case (see needsAuthConfig), so c.auth
@@ -602,7 +603,7 @@ func (w *WebTransportGenerator) generateReconnection(className string) string {
 // generateClassName generates a class name for a WebTransport endpoint.
 func (w *WebTransportGenerator) generateClassName(wt client.WebTransportEndpoint) string {
 	if wt.ID != "" {
-		return toPascalCase(wt.ID) + "WTClient"
+		return goIdent(toPascalCase(wt.ID)) + "WTClient"
 	}
 
 	return "WebTransportClient"
