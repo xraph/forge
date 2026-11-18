@@ -82,10 +82,13 @@ jwt := sec.JWTManager()
 token, err := jwt.GenerateToken(&security.JWTClaims{UserID: "user-42", Roles: []string{"admin"}})
 ```
 
-GenerateToken fills issuer, audience, iat, nbf, a 1h expiry (TTL) and a random jti. ValidateToken
-checks signature, time claims, issuer and audience. GenerateRefreshToken(userID) uses RefreshTTL
-(7 days). JWTClaims: UserID, Username, Email, Roles, Metadata plus registered claims. The key is
-raw bytes, so use HS256 (default), HS384 or HS512. JWTConfig.TokenLookup accepts a list like
+GenerateToken fills issuer, audience, iat, nbf, a 1h expiry (TTL), a random jti and typ "access".
+ValidateToken checks signature, pinned algorithm, required exp, time claims, issuer and audience,
+and only accepts typ "access". GenerateRefreshToken(userID) uses RefreshTTL (7 days) and typ
+"refresh"; only ValidateRefreshToken accepts it. RefreshSigningKey optionally signs refresh tokens
+with a separate key. JWTClaims: UserID, Username, Email, Roles, Metadata, TokenType plus registered
+claims. HS* take the key as a secret; RS*, PS*, ES*, EdDSA take a PEM private key (or PublicKey
+only, to verify). "none" is refused. JWTConfig.TokenLookup accepts a list like
 `header:Authorization,query:token,cookie:jwt`. `NewJWTManager(config JWTConfig, logger) (*JWTManager, error)`.
 
 ## Sessions
@@ -93,7 +96,10 @@ raw bytes, so use HS256 (default), HS384 or HS512. JWTConfig.TokenLookup accepts
 `SessionStore` interface: Create, Get, Update, Delete, DeleteByUserID, Touch, Cleanup, Count,
 Connect, Disconnect, Ping. Built in: `NewInMemorySessionStore(logger, metrics)`. Helpers:
 CreateSession(ctx, w, userID, store, cookieManager, SessionConfig, data), DestroySession,
-UpdateSession, NewSession, GenerateSessionID. Session has GetData(key).
+UpdateSession, WithSession, NewSession, GenerateSessionID. Session has GetData(key) and Clone().
+SessionMiddleware puts the session in the forge context and the request context. DestroySession
+and UpdateSession return ErrSessionNotFound without one. The in-memory store hands out copies;
+persist changes with UpdateSession. IdleTimeout and AbsoluteTimeout (default 7d) are enforced.
 Cookies default to Secure, HttpOnly, SameSite=Lax; use WithCookieSecure(false) on plain HTTP.
 
 ## Passwords
@@ -110,10 +116,14 @@ ConstantTimeCompare.
   (string, error), GetAPIKey, ValidateAPIKey(ctx, key), RevokeAPIKey, DeleteAPIKey,
   ListAPIKeys(userID). Held in memory. Header X-API-Key by default; expired or revoked keys are
   rejected.
-- CSRF: first safe request sets a `csrf_token` cookie and an `X-Csrf-Token` response header;
-  unsafe methods must send `X-CSRF-Token`, else 403. Tokens kept in memory 12h.
+- CSRF: signed double-submit. Safe requests without a valid token get a `csrf_token` cookie; every
+  safe request gets an `X-Csrf-Token` response header. Unsafe methods must send `X-CSRF-Token`
+  equal to the cookie, else 403. HMAC-signed, 12h, no server state. CSRFConfig.Secret shares the
+  key across replicas; BindToSession ties tokens to the session. IssueToken, VerifyToken.
 - CORS: defaults to every origin, no credentials, max age 1h. `*.example.com` patterns allowed.
+  ["*"] with credentials fails Validate and is never reflected. Vary: Origin is set.
   SecureCORSConfig(origins).
+- SkipPaths: an entry matches the path and paths below it on a segment boundary.
 - Headers: SecureHeadersPreset(), NewCSPBuilder().
 - Audit: NewAuditLogger(config, logger); default level "auth"; LogAuthEvent, LogDataEvent,
   LogAdminEvent, LogSecurityEvent; sensitive headers and fields redacted.
@@ -133,10 +143,10 @@ strict-origin-when-cross-origin; JWT HS256, 1h, refresh 7d, no key.
 
 ## Gotchas
 
-- The rate limiter keys on X-Real-IP, then the first X-Forwarded-For, then the remote address.
-  Clients control those headers unless a proxy overwrites them.
-- examples/security-auto-middleware reads the session with GetSession(r.Context()), which never
-  finds it.
+- The rate limiter keys on the remote address. X-Forwarded-For and X-Real-IP are only used when
+  the peer is in RateLimitConfig.TrustedProxies (WithRateLimitTrustedProxies); then the right-most
+  untrusted X-Forwarded-For hop is the client. MemoryRateLimiter.Stop ends its cleanup goroutine.
+- Tokens without a typ claim (issued before typ existed) are rejected.
 
 ## Not implemented yet
 

@@ -117,10 +117,10 @@ func TestPresenceGenerator_Generate(t *testing.T) {
 	// Check for expected exports
 	expectedItems := []string{
 		"export enum PresenceStatus",
-		"ONLINE = 'online'",
-		"AWAY = 'away'",
-		"BUSY = 'busy'",
-		"OFFLINE = 'offline'",
+		`ONLINE = "online"`,
+		`AWAY = "away"`,
+		`BUSY = "busy"`,
+		`OFFLINE = "offline"`,
 		"export type PresenceHandler",
 		"export interface PresenceClientConfig",
 		"export class PresenceClient",

@@ -3,6 +3,9 @@ package golang
 import (
 	"context"
 	"fmt"
+	"go/format"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/xraph/forge/errors"
@@ -97,6 +100,13 @@ func (g *Generator) Generate(ctx context.Context, specIface generators.APISpec, 
 	config, ok := configIface.(client.GeneratorConfig)
 	if !ok {
 		return nil, errors.New("config is invalid type")
+	}
+
+	// Schema names are printed verbatim as Go type names, at more sites than
+	// can be rewritten consistently, so a name that is not already an
+	// identifier is refused rather than emitted.
+	if err := spec.CheckTypeNames("Go", isGoTypeName); err != nil {
+		return nil, err
 	}
 
 	genClient := &generators.GeneratedClient{
@@ -213,7 +223,38 @@ func (g *Generator) Generate(ctx context.Context, specIface generators.APISpec, 
 	// Generate instructions
 	genClient.Instructions = g.generateInstructions(spec, config)
 
+	if err := formatGoFiles(genClient.Files); err != nil {
+		return nil, err
+	}
+
 	return genClient, nil
+}
+
+// formatGoFiles runs every generated .go file through go/format, replacing it
+// with the formatted source.
+//
+// The point is less the formatting than the parse underneath it. Every
+// generated file is built by string concatenation, and the specification is
+// text someone else may have written; a file that does not parse means some
+// piece of that text escaped the position it was printed into. Refusing to
+// emit it, with the file named, beats handing the user a package that either
+// fails to build or, worse, builds into something the specification author
+// chose.
+func formatGoFiles(files map[string]string) error {
+	for _, name := range slices.Sorted(maps.Keys(files)) {
+		if !strings.HasSuffix(name, ".go") {
+			continue
+		}
+
+		formatted, err := format.Source([]byte(files[name]))
+		if err != nil {
+			return fmt.Errorf("generated %s is not valid Go, refusing to emit it: %w", name, err)
+		}
+
+		files[name] = string(formatted)
+	}
+
+	return nil
 }
 
 // generateClientFile generates the main client.go file, returning any

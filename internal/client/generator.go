@@ -50,6 +50,13 @@ func (g *Generator) Generate(ctx context.Context, spec *APISpec, config Generato
 		return nil, err
 	}
 
+	// Before Validate, because a spec whose only REST operations are streams
+	// is a streaming client, and before the language generator, so none of
+	// them binds a stream as a request. Here rather than in the parser because
+	// a stream and its AsyncAPI channel can come from two documents, and only
+	// the merged spec has both.
+	spec.SeparateStreamEndpoints()
+
 	// Validate spec for this language
 	if err := gen.Validate(generators.APISpec(spec)); err != nil {
 		return nil, fmt.Errorf("validate spec: %w", err)

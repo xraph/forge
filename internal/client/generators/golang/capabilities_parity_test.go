@@ -61,8 +61,10 @@ func TestAuthorizationTableAgreesAcrossLanguages(t *testing.T) {
 		goPattern string
 		tsPattern string
 	}{
-		{"roles", `Roles: \[\]Role\{([^}]*)\}`, `roles: \[([^\]]*)\]`},
-		{"permissions", `Permissions: \[\]Permission\{([^}]*)\}`, `permissions: \[([^\]]*)\]`},
+		// \s+ after the Go keys: the generated file is gofmt'd, which aligns
+		// the values of a composite literal into a column.
+		{"roles", `Roles:\s+\[\]Role\{([^}]*)\}`, `roles: \[([^\]]*)\]`},
+		{"permissions", `Permissions:\s+\[\]Permission\{([^}]*)\}`, `permissions: \[([^\]]*)\]`},
 	} {
 		goValues := tableEntryValues(t, "capabilities.go", goSrc, field.goPattern)
 		tsValues := tableEntryValues(t, "capabilities.ts", tsSrc, field.tsPattern)

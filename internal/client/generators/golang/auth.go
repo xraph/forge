@@ -149,7 +149,7 @@ func generateAuthConfig(schemes []client.DetectedAuthScheme) (string, []string) 
 		case "apiKey":
 			switch f.scheme.In {
 			case "header", "cookie", "query":
-				fmt.Fprintf(&buf, "\t%s string // apiKey %s -> %s\n", f.name, f.scheme.In, f.scheme.ParamName)
+				fmt.Fprintf(&buf, "\t%s string // apiKey %s -> %s\n", f.name, goInlineComment(f.scheme.In), goInlineComment(f.scheme.ParamName))
 			default:
 				// OpenAPI 3.1 allows exactly these three locations, but the
 				// two IR builders copy `in` verbatim with no validation, so a
@@ -167,7 +167,7 @@ func generateAuthConfig(schemes []client.DetectedAuthScheme) (string, []string) 
 			// Neither specification mandates a transmission. Bearer is what the
 			// flows produce in practice, and stating the assumption beats
 			// implying the document made it.
-			fmt.Fprintf(&buf, "\t%s string // %s -> Authorization: Bearer <v>\n", f.name, f.scheme.Type)
+			fmt.Fprintf(&buf, "\t%s string // %s -> Authorization: Bearer <v>\n", f.name, goInlineComment(f.scheme.Type))
 		default:
 			// spec_parser.go and introspector.go copy Type/Scheme verbatim out
 			// of the document with no validation, so a legal-but-unhandled pair
@@ -235,7 +235,7 @@ func generateAuthApply(schemes []client.DetectedAuthScheme) string {
 			// key, is what keeps every scheme's credential in the one value
 			// AddCookie (and any other caller) will actually read.
 			buf.WriteString("\t\tif prev := header.Get(\"Cookie\"); prev != \"\" {\n")
-			fmt.Fprintf(&buf, "\t\t\theader.Set(\"Cookie\", prev+\"; %s=\"+a.%s)\n", f.scheme.ParamName, f.name)
+			fmt.Fprintf(&buf, "\t\t\theader.Set(\"Cookie\", prev+%q+a.%s)\n", "; "+f.scheme.ParamName+"=", f.name)
 			buf.WriteString("\t\t} else {\n")
 			fmt.Fprintf(&buf, "\t\t\theader.Set(\"Cookie\", %q+a.%s)\n", f.scheme.ParamName+"=", f.name)
 			buf.WriteString("\t\t}\n")

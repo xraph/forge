@@ -10,7 +10,7 @@ require (
 	github.com/dgraph-io/badger/v4 v4.8.0
 	github.com/hashicorp/consul/api v1.34.4
 	github.com/xraph/forge v1.12.9
-	github.com/xraph/vessel v1.0.4
+	github.com/xraph/vessel v1.0.7
 	go.etcd.io/bbolt v1.4.3
 	go.opentelemetry.io/otel/sdk v1.45.0
 	google.golang.org/grpc v1.83.2
@@ -95,7 +95,7 @@ require (
 	github.com/uptrace/bunrouter v1.0.23 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/xraph/confy v1.1.0 // indirect
-	github.com/xraph/go-utils v1.5.0 // indirect
+	github.com/xraph/go-utils v1.5.1 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.70.0 // indirect
 	go.opentelemetry.io/otel v1.45.0 // indirect

@@ -52,6 +52,8 @@ intents:
 
 			handler := NewHandler(reg, contract.NewWardenRegistry(), invalidationDispatcher{test.extra, test.err}, nil)
 			request := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/dashboard/v1", strings.NewReader(`{"envelope":"v1","kind":"command","contributor":"auth","intent":"auth.toggleFeature","csrf":"test","idempotencyKey":"test"}`))
+			request.Header.Set("Content-Type", "application/json")
+
 			response := httptest.NewRecorder()
 			handler.ServeHTTP(response, request)
 

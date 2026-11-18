@@ -37,7 +37,7 @@ For balance, everything below is built, tested, and used by the examples in thes
 - Entity inference from Go response types, with its refusal cases, including the entity behind an undeclared collection envelope
 - `ForgeEntity`, `ForgeEnvelope`, the `forge:"id"` tag, `WithEntity`, `WithoutEntity`
 - Derived same-entity invalidation, `WithInvalidates`, `WithoutInvalidation`
-- Time-based freshness: `WithStaleTime` on a Go route, a per-call and cache-wide `staleTime`, and the `revalidateOnFocus`, `revalidateOnReconnect` and `poll` installers, with the strictest live subscriber winning when more than one is mounted
+- Time-based freshness: `WithStaleTime` on a Go route, a per-call and cache-wide `staleTime`, the `revalidateOnFocus`, `revalidateOnReconnect` and `poll` installers, and a per-call `refetchInterval` in all three adapters, with the strictest live subscriber winning when more than one is mounted
 - `WithStreamBinding` and `Emits[T]`, with intent inferred from message suffix
 - `x-forge-*` extensions in OpenAPI and AsyncAPI, round-tripping through **JSON and YAML**
 - Capability gating: scopes from `WithRequiredAuth` as a typed union, `can()`, `canCall()` and `missingCapabilities()`, a UX affordance and never a security boundary

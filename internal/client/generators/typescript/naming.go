@@ -163,3 +163,35 @@ func toSnake(name string) string {
 
 	return strings.Join(lowered, "_")
 }
+
+// tsIdent keeps only the characters a TypeScript identifier may hold, and
+// prefixes an underscore when what is left starts with a digit. It returns ""
+// when nothing usable remains, so the caller picks its own fallback.
+//
+// Every name derived from specification text and printed as an identifier
+// passes through here. toCamel and toPascal only change case and drop word
+// separators, so a parameter named "q'] = (globalThis.X=1); y['z" used to
+// reach the generated signature with its quotes, brackets and semicolons
+// intact and run as code.
+func tsIdent(s string) string {
+	var b strings.Builder
+
+	for _, r := range s {
+		if r == '_' || r == '$' || unicode.IsLetter(r) || unicode.IsDigit(r) {
+			b.WriteRune(r)
+		}
+	}
+
+	out := b.String()
+	if out != "" && unicode.IsDigit([]rune(out)[0]) {
+		out = "_" + out
+	}
+
+	return out
+}
+
+// isTSTypeName reports whether name can be printed verbatim as a TypeScript
+// type name: an identifier start followed by identifier characters.
+func isTSTypeName(name string) bool {
+	return name != "" && tsIdent(name) == name
+}

@@ -18,8 +18,8 @@ require (
 	github.com/stretchr/testify v1.11.1
 	github.com/uptrace/bunrouter v1.0.23
 	github.com/xraph/confy v1.1.0
-	github.com/xraph/go-utils v1.5.0
-	github.com/xraph/vessel v1.0.4
+	github.com/xraph/go-utils v1.5.1
+	github.com/xraph/vessel v1.0.7
 	go.opentelemetry.io/otel v1.45.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.45.0
 	go.opentelemetry.io/otel/sdk v1.45.0

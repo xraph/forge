@@ -576,6 +576,7 @@ func convertOperation(spec *APISpec, method, path string, op *shared.Operation) 
 	resolveEndpointCacheMeta(spec, &endpoint, op.Extensions)
 	endpoint.Authorization = resolveEndpointAuthz(op.Extensions)
 	resolveEndpointIdempotent(spec, &endpoint, op.Extensions)
+	resolveEndpointStream(spec, &endpoint, op.Extensions)
 	collectSyncRoute(spec, endpointOrigin(&endpoint), endpoint.Path, "", op.Extensions)
 
 	return endpoint

@@ -59,7 +59,24 @@ type Config struct {
 	EnableAutoCleanup bool          `env:"HLS_ENABLE_AUTO_CLEANUP" mapstructure:"enable_auto_cleanup" yaml:"enable_auto_cleanup"`
 
 	// Security
-	RequireAuth    bool     `env:"HLS_REQUIRE_AUTH"    mapstructure:"require_auth"    yaml:"require_auth"`
+	//
+	// The stream management routes (create, get, list, delete, start, stop,
+	// ingest, stats under BasePath/streams) create and delete streams and
+	// write segment data, so they are not mounted by default. They are
+	// mounted when EnableManagementAPI or RequireAuth is set. Without them
+	// the manager is still available to your own code through the DI
+	// container.
+	//
+	// RequireAuth makes those routes refuse a request with 401 unless auth
+	// middleware that runs before them has signed the caller in, which
+	// means it set "auth_context" (what the auth extension sets) or a
+	// non-empty "user_id" on the forge context. Mounting them with
+	// EnableManagementAPI and no RequireAuth leaves them open, and the
+	// extension logs a warning saying so. Playback routes (playlists and
+	// segments) are never gated.
+	EnableManagementAPI bool `env:"HLS_ENABLE_MANAGEMENT_API" mapstructure:"enable_management_api" yaml:"enable_management_api"`
+	RequireAuth         bool `env:"HLS_REQUIRE_AUTH"          mapstructure:"require_auth"          yaml:"require_auth"`
+
 	AllowedOrigins []string `env:"HLS_ALLOWED_ORIGINS" mapstructure:"allowed_origins" yaml:"allowed_origins"`
 	EnableCORS     bool     `env:"HLS_ENABLE_CORS"     mapstructure:"enable_cors"     yaml:"enable_cors"`
 
@@ -273,7 +290,17 @@ func WithCleanup(retention, interval time.Duration) ConfigOption {
 	}
 }
 
-// WithAuth enables authentication.
+// WithManagementAPI mounts the stream management routes under
+// BasePath/streams. They are off by default; pair this with WithAuth(true)
+// unless the routes are only reachable from a trusted network.
+func WithManagementAPI(enabled bool) ConfigOption {
+	return func(c *Config) {
+		c.EnableManagementAPI = enabled
+	}
+}
+
+// WithAuth mounts the management routes and makes them require a signed-in
+// caller. See Config.RequireAuth for what counts as signed in.
 func WithAuth(required bool) ConfigOption {
 	return func(c *Config) {
 		c.RequireAuth = required

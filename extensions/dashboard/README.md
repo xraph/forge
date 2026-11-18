@@ -98,6 +98,8 @@ All paths are under the base path (default `/dashboard`).
 
 The CSRF route exists only while both CSRF and contract security are on (the default). The stream routes exist only when a stream broker is wired.
 
+A CSRF token is bound to the caller it was fetched for and lasts an hour, which is the `expiresAt` the route reports. Commands must be sent as `Content-Type: application/json`, and a command the browser marks as cross-site is refused unless its origin is listed with `WithTrustedOrigins`.
+
 ### Error codes and HTTP status
 
 A failed envelope comes back as `{"ok":false,"envelope":"v1","error":{"code":...,"message":...}}` with an HTTP status taken from the code. A handler error that wraps a `*contract.Error` keeps its code, a cancelled context becomes a retryable `UNAVAILABLE`, and anything else becomes `INTERNAL`.
@@ -145,7 +147,7 @@ func (e *ReportsExtension) DashboardStatus() dashboard.DashboardStatus {
 
 An extension that doesn't implement it is reported as configured, with no version check.
 
-A contributor can also live in another service. Serve it there with `contract/server`, then either call `RegisterRemoteContractContributor(ctx, baseURL, apiKey)` on the dashboard extension, or turn on `WithDiscovery(true)` and let the dashboard find every service tagged `forge-dashboard-contributor` through `SetDiscoveryService`. The dashboard fetches `<baseURL>/_forge/contract/manifest`, validates it, and forwards envelopes to `<baseURL>/_forge/contract/dispatch`.
+A contributor can also live in another service. Serve it there with `contract/server`, then either call `RegisterRemoteContractContributor(ctx, baseURL, apiKey)` on the dashboard extension, or turn on `WithDiscovery(true)` and let the dashboard find every service tagged `forge-dashboard-contributor` through `SetDiscoveryService`. The dashboard fetches `<baseURL>/_forge/contract/manifest`, validates it, and forwards envelopes to `<baseURL>/_forge/contract/dispatch`. Use https for a remote on another host; plain http is refused, before anything is sent, unless the host is loopback or `WithAllowInsecureRemotes(true)` is set. A discovered instance is reached over https when it advertises it, with `forge-scheme: https` in its metadata or an `https` tag; one on another host that doesn't is skipped without that setting. The API key is never sent over plain http to another host, even when it is allowed, and a manifest over 1 MiB is refused. The remote receives the signed-in subject as `X-Forwarded-User` (trust it only on requests that carry the dashboard's API key), not the user's cookies or `Authorization`, and its response is capped at 10 MiB.
 
 ## Local handler admission
 
@@ -227,7 +229,7 @@ dashExt := dashboard.NewExtension(dashboard.WithEnableAuth(true))
 dashExt.(*dashboard.Extension).SetAuthChecker(&MyChecker{})
 ```
 
-With `WithEnableAuth(true)`, `/principal` answers 401 for a signed-out caller and tells the client where the login page is (`LoginPath`, `/login` under the base path by default). Add `WithRequiredRoles` and `/principal` answers 403 `PERMISSION_DENIED` for a signed-in user without one of those roles. Only `/principal` checks the roles. The contract endpoint doesn't, so the role gate holds only as far as your UI respects that answer, and your `AuthChecker` or contributor handlers should enforce anything that matters. With auth off, `/principal` returns `{"authenticated":false}` so the UI can skip its login gate. Auth extensions such as authsome wire all of this themselves through `DashboardAuthAware`.
+With `WithEnableAuth(true)`, every dashboard route (the envelope endpoint, capabilities, streams, the CSRF route and the exports) answers 401 `UNAUTHENTICATED` to a signed-out caller, with the login path in `error.details.loginPath`. `/principal` answers 401 too and tells the client where the login page is (`LoginPath`, `/login` under the base path by default). Add `WithRequiredRoles` and every route, `/principal` included, answers 403 `PERMISSION_DENIED` to a signed-in user without one of those roles. A user put in the request context by your own middleware with `dashauth.WithUser` counts, and an `AuthChecker` error counts as signed out. Per-intent `requires` predicates still apply on top. With auth off, every route is open, the dashboard logs a warning at startup saying so, and `/principal` returns `{"authenticated":false}` so the UI can skip its login gate. Auth extensions such as authsome wire all of this themselves through `DashboardAuthAware`.
 
 ## Configuration
 
@@ -240,12 +242,15 @@ Configure the dashboard with options on `dashboard.NewExtension`, or under `exte
 | `WithCSRF(bool)` | on | CSRF tokens for commands |
 | `WithContractSecurity(bool)` | on | CSRF checks, idempotency and tracing on the envelope endpoint. Turn off only during a client rollout |
 | `WithContractMaxBodyBytes(int64)` | 1 MiB | Larger envelopes get 413 before decoding |
+| `WithTrustedOrigins(...string)` | none | Origins allowed to send commands cross-site, for a UI served from another site |
 | `WithRefreshInterval`, `WithHistoryDuration`, `WithMaxDataPoints` | 30s, 30m, 120 | Metric collection. The interval must be at least 1s and points at least 10 |
 | `WithTraceMaxCount`, `WithTraceRetention`, `WithTraceMaxSpansPerTrace`, `WithTraceIdleTTL` | 200, 30m, 200, 5m | Trace retention. Spans are only kept for `TraceIdleTTL` after the last dashboard request; a negative value keeps them always |
 | `WithTraceCaptureRequestBody(bool)` | off | Keep a bounded, redacted JSON request body with each trace |
 | `WithMemoryProfile(profile)` | medium | `MemoryProfileLow`, `MemoryProfileMedium` or `MemoryProfileHigh` presets for the collection and trace settings |
 | `WithDiscovery(bool)`, `WithDiscoveryTag(string)`, `WithDiscoveryPollInterval(d)` | off, `forge-dashboard-contributor`, 60s | Remote contributor discovery |
-| `WithExport(bool)`, `WithExportFormats([]string)` | on, all three | Export endpoints. `WithExportFormats` isn't read yet, so all three formats stay on. The export routes don't go through the auth middleware |
+| `WithAllowInsecureRemotes(bool)` | off | Allow plain http to remote contributors that are not on a loopback address. Discovery builds http URLs, so discovered contributors on other hosts need it |
+| `WithRemoteForwardHeaders(...string)`, `WithRemotePropagateSetCookie(bool)` | none, off | Pass these inbound headers to remotes as `X-Forwarded-<Name>`, and re-emit a remote's `Set-Cookie` on the dashboard origin. By default a remote gets only `X-Forwarded-User` with the signed-in subject |
+| `WithExport(bool)`, `WithExportFormats([]string)` | on, all three | Export endpoints. `WithExportFormats` isn't read yet, so all three formats stay on. With auth on, they sit behind the same gate as every other route |
 | `WithConfig(dashboard.Config)`, `WithRequireConfig(bool)` | | Replace the whole config, or fail without one |
 
 Options apply in order, so a setting after `WithMemoryProfile` overrides the preset.

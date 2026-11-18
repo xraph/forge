@@ -176,7 +176,8 @@ func TestGoGeneratorRESTEndpoints(t *testing.T) {
 	// The scheme is keyed "bearerAuth", so the emitted field is named after
 	// it (BearerAuth) rather than the old fixed "BearerToken" name every
 	// bearer scheme used to share regardless of its key.
-	if !strings.Contains(clientCode, "BearerAuth string") {
+	// Fields collapses the column alignment gofmt gives struct fields.
+	if !strings.Contains(strings.Join(strings.Fields(clientCode), " "), "BearerAuth string") {
 		t.Error("client.go should contain BearerAuth field")
 	}
 

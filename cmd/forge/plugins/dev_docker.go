@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -243,7 +245,7 @@ func (dw *dockerAppWatcher) buildDevImage(ctx cli.CommandContext) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
-	ctx.Info("  $ docker " + strings.Join(args, " "))
+	ctx.Info("  $ docker " + strings.Join(maskDockerArgs(args), " "))
 
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("docker build failed: %w", err)
@@ -457,6 +459,26 @@ func (dw *dockerAppWatcher) runContainer(ctx cli.CommandContext) error {
 	removeCmd := dockerCommand(ctx.Context(), "rm", "-f", dw.containerName)
 	_ = removeCmd.Run()
 
+	args := dw.runArgs()
+
+	cmd := dockerCommand(ctx.Context(), args...)
+	cmd.Dir = dw.config.RootDir
+
+	ctx.Info("  $ docker " + strings.Join(maskDockerArgs(args), " "))
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("docker run failed: %s: %w", strings.TrimSpace(string(output)), err)
+	}
+
+	dw.containerID = strings.TrimSpace(string(output))
+
+	return nil
+}
+
+// runArgs is the docker run argument list for the dev container, with real
+// env values; only the echoed copy is masked (see maskDockerArgs).
+func (dw *dockerAppWatcher) runArgs() []string {
 	args := []string{
 		"run", "-d",
 		"--name", dw.containerName,
@@ -464,9 +486,13 @@ func (dw *dockerAppWatcher) runContainer(ctx cli.CommandContext) error {
 		"-w", "/app",
 	}
 
-	// Port forwarding.
+	// Port forwarding. Published on loopback unless configured otherwise:
+	// a bare port:port publishes on every interface, which puts a dev server
+	// with debug settings on the local network, and docker's published ports
+	// bypass host firewalls such as ufw.
 	if dw.port > 0 {
-		args = append(args, "-p", fmt.Sprintf("%d:%d", dw.port, dw.port))
+		port := strconv.Itoa(dw.port)
+		args = append(args, "-p", net.JoinHostPort(dw.dockerConfig.GetPublishAddress(), port)+":"+port)
 	}
 
 	// Network.
@@ -501,21 +527,56 @@ func (dw *dockerAppWatcher) runContainer(ctx cli.CommandContext) error {
 		args = append(args, "--platform", dw.dockerConfig.Platform)
 	}
 
-	args = append(args, dw.imageName)
+	return append(args, dw.imageName)
+}
 
-	cmd := dockerCommand(ctx.Context(), args...)
-	cmd.Dir = dw.config.RootDir
+// maskedValue stands in for an env or build-arg value in echoed commands.
+const maskedValue = "***"
 
-	ctx.Info("  $ docker " + strings.Join(args, " "))
+// maskDockerArgs returns a copy of args for printing, with the value of every
+// -e/--env and --build-arg KEY=VALUE replaced by KEY=***. Config env and build
+// args routinely carry tokens and passwords, and the echoed command lands in
+// terminals, screen shares and CI logs. A bare KEY (docker copies the value
+// from the host environment) has no value to hide and is left alone.
+func maskDockerArgs(args []string) []string {
+	out := make([]string, len(args))
+	maskNext := false
 
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("docker run failed: %s: %w", strings.TrimSpace(string(output)), err)
+	for i, arg := range args {
+		if maskNext {
+			out[i] = maskAssignment(arg)
+			maskNext = false
+
+			continue
+		}
+
+		out[i] = arg
+
+		switch {
+		case arg == "-e" || arg == "--env" || arg == "--build-arg":
+			maskNext = true
+		case strings.HasPrefix(arg, "--env=") || strings.HasPrefix(arg, "--build-arg="):
+			flag, value, _ := strings.Cut(arg, "=")
+			out[i] = flag + "=" + maskAssignment(value)
+		case strings.HasPrefix(arg, "-e="):
+			out[i] = "-e=" + maskAssignment(arg[len("-e="):])
+		case strings.HasPrefix(arg, "-e") && len(arg) > 2 && !strings.HasPrefix(arg, "--"):
+			// Short flag with its value attached: -eKEY=VALUE.
+			out[i] = "-e" + maskAssignment(arg[len("-e"):])
+		}
 	}
 
-	dw.containerID = strings.TrimSpace(string(output))
+	return out
+}
 
-	return nil
+// maskAssignment turns KEY=VALUE into KEY=*** and leaves a bare KEY as is.
+func maskAssignment(s string) string {
+	key, _, ok := strings.Cut(s, "=")
+	if !ok {
+		return s
+	}
+
+	return key + "=" + maskedValue
 }
 
 // stopContainer stops and removes the container.

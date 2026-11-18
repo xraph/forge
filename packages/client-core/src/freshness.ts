@@ -1,8 +1,8 @@
 import type { QueryCache } from './cache.js';
 import type { EventTargetLike } from './stream.js';
 import type { TagContext } from './tags.js';
-import { realSleep } from './transport.js';
-import type { OperationMeta, Sleep } from './transport.js';
+import { realClock, realSleep } from './transport.js';
+import type { Clock, OperationMeta, Sleep } from './transport.js';
 
 /**
  * Ambient revalidation: the browser telling the cache that time has passed in
@@ -128,6 +128,11 @@ export function revalidateOnReconnect(
 export interface PollOptions {
   /** How a delay is taken. Defaults to `realSleep`. Tests pass a manual clock. */
   readonly sleep?: Sleep;
+  /**
+   * Reads the clock the cadence is measured on. Defaults to `realClock`. A test
+   * passing a manual clock's `sleep` passes its `now` too.
+   */
+  readonly now?: Clock;
   /** Keep polling while the document is hidden. Defaults to false. */
   readonly whileHidden?: boolean;
 }
@@ -137,12 +142,22 @@ export interface PollOptions {
  *
  * A loop over an injected `Sleep` rather than `setInterval`, which is the shape
  * `RestTransport` already uses for retry backoff and the reason a polling test
- * can run on a manual clock instead of on wall time. It also cannot stack:
- * the next delay begins after the previous request settled, so a slow endpoint
- * spreads its polls out rather than queueing them.
+ * can run on a manual clock instead of on wall time.
+ *
+ * **It holds its cadence and cannot stack.** Each request starts one interval
+ * after the previous one *started*, not after it finished: the wait is the
+ * interval less however long the request took. Sleeping the whole interval
+ * after each response is the obvious loop and the wrong one, because it makes
+ * the period `interval + latency` -- a three second poll on a two second
+ * endpoint quietly becomes a five second one. A response slower than the
+ * interval is followed by the next request straight away, never overlapped by
+ * it, so a slow endpoint gets back-to-back requests and not a queue.
  *
  * Paused while the document is hidden, because polling a background tab spends
  * requests on a screen nobody is reading.
+ *
+ * An interval that is not a positive finite number polls nothing. Zero would
+ * otherwise be a request loop with no delay at all.
  */
 export function poll(
   cache: QueryCache,
@@ -151,20 +166,29 @@ export function poll(
   intervalMs: number,
   options: PollOptions = {},
 ): () => void {
+  if (!(intervalMs > 0) || !Number.isFinite(intervalMs)) return () => undefined;
+
   const sleep = options.sleep ?? realSleep;
+  const now = options.now ?? realClock;
   let stopped = false;
 
   void (async () => {
+    let wait = intervalMs;
+
     while (!stopped) {
-      await sleep(intervalMs);
+      await sleep(wait);
 
       if (stopped) break;
+
+      wait = intervalMs;
 
       if (options.whileHidden !== true) {
         const doc = (globalThis as { document?: VisibilityLike }).document;
 
         if (doc?.visibilityState === 'hidden') continue;
       }
+
+      const started = now();
 
       try {
         await cache.refetch(meta, args);
@@ -173,6 +197,8 @@ export function poll(
         // its own `onError`, and a poll that dies on one failed request is a
         // poll that silently stops refreshing the screen.
       }
+
+      wait = Math.max(0, intervalMs - (now() - started));
     }
   })();
 

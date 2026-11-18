@@ -249,7 +249,12 @@ paths:
             operationId: notifications
             responses:
                 "200":
-                    description: Success
+                    description: Event stream
+                    content:
+                        text/event-stream:
+                            schema:
+                                type: string
+            x-forge-protocol: sse
     /tenants/{tenantId}/items:
         get:
             summary: List tenant items
@@ -332,8 +337,9 @@ paths:
                   schema:
                     type: string
             responses:
-                "200":
-                    description: Success
+                "101":
+                    description: Switching Protocols
+            x-forge-protocol: websocket
     /ws/trees/{treeId}:
         get:
             summary: Tree event stream
@@ -346,8 +352,9 @@ paths:
                   schema:
                     type: string
             responses:
-                "200":
-                    description: Success
+                "101":
+                    description: Switching Protocols
+            x-forge-protocol: websocket
 components:
     schemas:
         BillingInvoice:

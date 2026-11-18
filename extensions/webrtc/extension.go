@@ -481,39 +481,43 @@ func (e *Extension) GetRecorder() Recorder {
 }
 
 // RegisterRoutes registers WebRTC HTTP routes.
+//
+// The signaling endpoint needs a signed-in caller (a non-empty string
+// "user_id" on the forge context, set by auth middleware ahead of it) and a
+// Config.RoomAuthorizer that admits that caller to the room in the URL.
 func (e *Extension) RegisterRoutes(router forge.Router) error {
+	if e.config.RoomAuthorizer == nil && e.logger != nil {
+		e.logger.Warn("webrtc: no RoomAuthorizer configured; the signaling endpoint will refuse every join. Set one with WithRoomAuthorizer.")
+	}
+
 	// WebSocket endpoint for signaling
 	return router.WebSocket("/webrtc/signal/{roomID}", func(ctx forge.Context, conn forge.Connection) error {
 		roomID := ctx.Param("roomID")
-		userID := ctx.Get("user_id").(string)
+
+		userID, ok := signalingUserID(ctx.Get("user_id"))
+		if !ok {
+			return fmt.Errorf("webrtc: signaling requires a signed-in user: %w", ErrUnauthorized)
+		}
 
 		// Handle signaling for this connection
 		return e.handleSignaling(ctx, roomID, userID, conn)
 	})
 }
 
+// signalingUserID reads the caller's ID from the "user_id" context value. A
+// missing, non-string or empty value is an anonymous caller, which the
+// signaling endpoint refuses: peers in a call room are keyed by user ID.
+func signalingUserID(v any) (string, bool) {
+	userID, ok := v.(string)
+
+	return userID, ok && userID != ""
+}
+
 // handleSignaling handles WebRTC signaling for a connection.
 func (e *Extension) handleSignaling(fctx forge.Context, roomID, userID string, conn forge.Connection) error {
 	ctx := fctx.Request().Context()
 
-	// Get or create call room
-	room, err := e.GetCallRoom(roomID)
-	if err != nil {
-		// Room doesn't exist, create it
-		room, err = e.CreateCallRoom(ctx, roomID, streaming.RoomOptions{
-			Name:       "Call " + roomID,
-			MaxMembers: 50,
-		})
-		if err != nil {
-			return err
-		}
-	}
-
-	// Join the call
-	peer, err := room.JoinCall(ctx, userID, &JoinOptions{
-		AudioEnabled: true,
-		VideoEnabled: true,
-	})
+	room, peer, err := e.joinFromSignaling(ctx, roomID, userID)
 	if err != nil {
 		return err
 	}
@@ -529,6 +533,59 @@ func (e *Extension) handleSignaling(fctx forge.Context, roomID, userID string, c
 
 	// Handle signaling messages via connection
 	return e.handleSignalingLoop(ctx, roomID, userID, peer, conn)
+}
+
+// joinFromSignaling authorizes userID for roomID, creates the room if it
+// does not exist yet, and joins the user to it. Authorization runs first, so
+// a caller who may not join a room cannot create it either.
+func (e *Extension) joinFromSignaling(ctx context.Context, roomID, userID string) (CallRoom, PeerConnection, error) {
+	if roomID == "" {
+		return nil, nil, errors.New("webrtc: room ID is required")
+	}
+
+	if e.config.RoomAuthorizer == nil {
+		return nil, nil, fmt.Errorf("webrtc: no room authorizer configured: %w", ErrUnauthorized)
+	}
+
+	allowed, err := e.config.RoomAuthorizer.CanJoin(ctx, userID, roomID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("webrtc: room authorization failed: %w", err)
+	}
+
+	if !allowed {
+		return nil, nil, fmt.Errorf("webrtc: user may not join room %s: %w", roomID, ErrUnauthorized)
+	}
+
+	room, err := e.GetCallRoom(roomID)
+	if err != nil {
+		// Room doesn't exist, create it. CreateCallRoom refuses an options
+		// struct without an ID, so the room ID has to be passed in it too.
+		room, err = e.CreateCallRoom(ctx, roomID, streaming.RoomOptions{
+			ID:         roomID,
+			Name:       "Call " + roomID,
+			MaxMembers: 50,
+		})
+		if err != nil {
+			// Another connection may have created it in the meantime.
+			existing, getErr := e.GetCallRoom(roomID)
+			if getErr != nil {
+				return nil, nil, err
+			}
+
+			room = existing
+		}
+	}
+
+	// Join the call
+	peer, err := room.JoinCall(ctx, userID, &JoinOptions{
+		AudioEnabled: true,
+		VideoEnabled: true,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return room, peer, nil
 }
 
 func (e *Extension) handleSignalingLoop(ctx context.Context, roomID, userID string, peer PeerConnection, conn forge.Connection) error {

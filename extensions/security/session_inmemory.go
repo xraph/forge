@@ -11,6 +11,12 @@ import (
 // InMemorySessionStore implements SessionStore using an in-memory map
 // with automatic cleanup of expired sessions. Not recommended for production
 // use in distributed environments.
+//
+// The store keeps its own copy of every session. Get returns a fresh copy and
+// Create and Update store one, so concurrent requests for the same session
+// never share a *Session. Changes a handler makes to a session are therefore
+// only kept once they are written back with Update (or UpdateSession), which
+// is the same contract a networked store such as Redis has.
 type InMemorySessionStore struct {
 	sessions map[string]*Session
 	mu       sync.RWMutex
@@ -36,7 +42,7 @@ func (s *InMemorySessionStore) Create(ctx context.Context, session *Session, ttl
 	defer s.mu.Unlock()
 
 	session.ExpiresAt = time.Now().Add(ttl)
-	s.sessions[session.ID] = session
+	s.sessions[session.ID] = session.Clone()
 
 	if s.metrics != nil {
 		s.metrics.Counter("security.sessions.created").Inc()
@@ -78,7 +84,7 @@ func (s *InMemorySessionStore) Get(ctx context.Context, sessionID string) (*Sess
 		s.metrics.Counter("security.sessions.retrieved").Inc()
 	}
 
-	return session, nil
+	return session.Clone(), nil
 }
 
 // Update updates an existing session.
@@ -91,7 +97,7 @@ func (s *InMemorySessionStore) Update(ctx context.Context, session *Session, ttl
 	}
 
 	session.ExpiresAt = time.Now().Add(ttl)
-	s.sessions[session.ID] = session
+	s.sessions[session.ID] = session.Clone()
 
 	if s.metrics != nil {
 		s.metrics.Counter("security.sessions.updated").Inc()
@@ -172,7 +178,6 @@ func (s *InMemorySessionStore) Touch(ctx context.Context, sessionID string, ttl 
 
 	session.Touch()
 	session.ExpiresAt = time.Now().Add(ttl)
-	s.sessions[sessionID] = session
 
 	if s.metrics != nil {
 		s.metrics.Counter("security.sessions.touched").Inc()

@@ -1,0 +1,9 @@
+{
+  "openapi": "3.0.3",
+  "info": { "title": "EvilName", "version": "1.0.0" },
+  "paths": {
+    "/items": { "get": { "operationId": "list\"); globalThis.PWN_OPID=1; (\"",
+        "responses": { "200": { "description": "ok", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/X {} ; globalThis.PWN_NAME=1; interface Y" } } } } } } }
+  },
+  "components": { "schemas": { "X {} ; globalThis.PWN_NAME=1; interface Y": { "type": "object", "properties": { "user_name": { "type": "string" } } } } }
+}

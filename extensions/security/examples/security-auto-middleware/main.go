@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"time"
 
@@ -38,6 +39,9 @@ func main() {
 		security.WithAutoApplyMiddleware(true),
 		// Skip session handling for these paths
 		security.WithSkipPaths([]string{"/health", "/public"}),
+		// This example only uses sessions. JWT is on by default and needs a
+		// signing key, so without this the extension refuses to register.
+		security.WithJWTEnabled(false),
 	)
 
 	if err := app.RegisterExtension(securityExt); err != nil {
@@ -201,7 +205,15 @@ func main() {
 
 	// Logout
 	router.POST("/logout", func(w http.ResponseWriter, r *http.Request) error {
-		if err := security.DestroySession(r.Context(), w, sessionStore, cookieManager, "auto_session"); err != nil {
+		err := security.DestroySession(r.Context(), w, sessionStore, cookieManager, "auto_session")
+		if errors.Is(err, security.ErrSessionNotFound) {
+			// No live session on this request, so there is nothing to end.
+			return writeJSON(w, http.StatusOK, map[string]string{
+				"message": "already logged out",
+			})
+		}
+
+		if err != nil {
 			app.Logger().Error("failed to destroy session", forge.F("error", err))
 			return writeJSON(w, http.StatusInternalServerError, map[string]string{
 				"error": "failed to logout",

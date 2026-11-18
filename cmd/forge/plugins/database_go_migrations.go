@@ -88,10 +88,15 @@ func (p *DatabasePlugin) runWithGoMigrations(ctx cli.CommandContext, command, ds
 		}
 	}
 
-	binaryPath, err := p.buildMigrationRunner(dsn, appName)
+	binaryPath, cleanup, err := p.buildMigrationRunner(dsn, appName)
 	if err != nil {
 		return err
 	}
+
+	// Each run builds into a fresh temp directory of roughly 15 MB. Nothing
+	// reuses it after the binary exits, so it goes as soon as this returns,
+	// whether the migration succeeded or not.
+	defer cleanup()
 
 	// Execute the migration command
 	migrationCmd := exec.CommandContext(context.Background(), binaryPath, command)
@@ -118,37 +123,49 @@ func (p *DatabasePlugin) runWithGoMigrations(ctx cli.CommandContext, command, ds
 	return nil
 }
 
+// runGoTool runs the go command in dir and returns its combined output. A variable so
+// tests can exercise the runner's build and temp directory lifecycle without a real
+// "go mod tidy" and "go build".
+var runGoTool = func(dir string, env []string, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(context.Background(), "go", args...)
+	cmd.Dir = dir
+	cmd.Env = env
+
+	return cmd.CombinedOutput()
+}
+
 // buildMigrationRunner generates, tidies and compiles a temporary migration runner for
 // the given DSN and app, returning the path to the built binary. It does not execute the
 // binary, so a test can build the runner and drive it directly without going through
 // runWithGoMigrations' CommandContext plumbing.
 //
-// On success the temp directory holding the generated source is left in place: the
-// returned binaryPath lives inside it, and the caller is expected to run the binary
-// before the process exits. On a tidy or build failure, the temp directory is also left
-// in place (and its path is folded into the returned error) so the generated source that
-// caused the failure survives for inspection.
-func (p *DatabasePlugin) buildMigrationRunner(dsn, appName string) (string, error) {
+// On success the temp directory holding the generated source and binaryPath is left in
+// place for the caller to run the binary, and cleanup removes it; the caller must call
+// cleanup once the binary has exited. On a tidy or build failure, the temp directory is
+// left in place on purpose (and its path is folded into the returned error) so the
+// generated source that caused the failure survives for inspection.
+func (p *DatabasePlugin) buildMigrationRunner(dsn, appName string) (binaryPath string, cleanup func(), err error) {
 	// Resolve the driver before creating anything on disk, so a bad DSN fails
 	// immediately instead of leaving a half-built temp directory. generateMigrationRunner
 	// below resolves it again for the source it emits; drv is kept here too, because the
 	// go.mod built below needs the driver module's identity to pin its version.
 	drv, err := resolveGroveDriver(dsn)
 	if err != nil {
-		return "", fmt.Errorf("failed to resolve database driver: %w", err)
+		return "", nil, fmt.Errorf("failed to resolve database driver: %w", err)
 	}
 
 	// Create temporary directory for migration runner
 	tmpDir, err := os.MkdirTemp("", "forge-migrate-*")
 	if err != nil {
-		return "", fmt.Errorf("failed to create temp directory: %w", err)
+		return "", nil, fmt.Errorf("failed to create temp directory: %w", err)
 	}
 
 	// keepDir is set once the runner is ready, or when a build step fails.
 	// In the failure case, the generated source that caused it survives for
 	// inspection instead of vanishing with the temp directory. In the
 	// success case, the binary itself lives inside tmpDir, so removing it
-	// here would delete what the caller is about to run.
+	// here would delete what the caller is about to run; the caller removes
+	// it through the returned cleanup instead.
 	keepDir := false
 	defer func() {
 		if !keepDir {
@@ -159,13 +176,13 @@ func (p *DatabasePlugin) buildMigrationRunner(dsn, appName string) (string, erro
 	// Generate migration runner
 	runnerPath := filepath.Join(tmpDir, "main.go")
 	if err := p.generateMigrationRunner(runnerPath, dsn, appName); err != nil {
-		return "", fmt.Errorf("failed to generate migration runner: %w", err)
+		return "", nil, fmt.Errorf("failed to generate migration runner: %w", err)
 	}
 
 	// Initialize go.mod in temp directory
 	moduleName, err := p.getModuleName()
 	if err != nil {
-		return "", fmt.Errorf("failed to get module name: %w", err)
+		return "", nil, fmt.Errorf("failed to get module name: %w", err)
 	}
 
 	// Get Go version from project's go.mod
@@ -177,7 +194,7 @@ func (p *DatabasePlugin) buildMigrationRunner(dsn, appName string) (string, erro
 	// Get replace directives from the project's go.mod for local modules
 	replaceDirectives, err := p.getReplaceDirectives()
 	if err != nil {
-		return "", fmt.Errorf("failed to get replace directives: %w", err)
+		return "", nil, fmt.Errorf("failed to get replace directives: %w", err)
 	}
 
 	// Build replace section
@@ -239,41 +256,34 @@ require (
 
 	goModPath := filepath.Join(tmpDir, "go.mod")
 	if err := os.WriteFile(goModPath, []byte(goModContent), 0644); err != nil {
-		return "", fmt.Errorf("failed to create go.mod: %w", err)
+		return "", nil, fmt.Errorf("failed to create go.mod: %w", err)
 	}
 
 	// Run go mod tidy to generate go.sum and resolve all dependencies
-	tidyCmd := exec.CommandContext(context.Background(), "go", "mod", "tidy")
-	tidyCmd.Dir = tmpDir
-
-	tidyCmd.Env = os.Environ()
-	if output, err := tidyCmd.CombinedOutput(); err != nil {
+	if output, err := runGoTool(tmpDir, os.Environ(), "mod", "tidy"); err != nil {
 		// Leave tmpDir in place. Reporting a dependency error without the
 		// generated source that caused it makes this unreportable as a bug.
 		keepDir = true
 
-		return "", fmt.Errorf("failed to tidy dependencies: %w\n\n%s\nGenerated source kept at: %s", err, output, tmpDir)
+		return "", nil, fmt.Errorf("failed to tidy dependencies: %w\n\n%s\nGenerated source kept at: %s", err, output, tmpDir)
 	}
 
 	// Build the runner
-	binaryPath := filepath.Join(tmpDir, "migrate")
-	buildCmd := exec.CommandContext(context.Background(), "go", "build", "-o", binaryPath, ".")
-	buildCmd.Dir = tmpDir
+	binaryPath = filepath.Join(tmpDir, "migrate")
 
-	buildCmd.Env = append(os.Environ(), "CGO_ENABLED=0")
-
-	if out, err := buildCmd.CombinedOutput(); err != nil {
+	if out, err := runGoTool(tmpDir, append(os.Environ(), "CGO_ENABLED=0"), "build", "-o", binaryPath, "."); err != nil {
 		// Leave tmpDir in place. Reporting a compile error without the source
 		// that caused it makes this unreportable as a bug.
 		keepDir = true
 
-		return "", fmt.Errorf("failed to build the migration runner: %w\n\n%s\nGenerated source kept at: %s", err, out, tmpDir)
+		return "", nil, fmt.Errorf("failed to build the migration runner: %w\n\n%s\nGenerated source kept at: %s", err, out, tmpDir)
 	}
 
-	// The binary now lives inside tmpDir; keep the directory so the caller can run it.
+	// The binary now lives inside tmpDir, so the directory stays until the caller has
+	// run it and calls cleanup.
 	keepDir = true
 
-	return binaryPath, nil
+	return binaryPath, func() { _ = os.RemoveAll(tmpDir) }, nil
 }
 
 // generateMigrationRunner creates a temporary Go file that imports the user's migrations
