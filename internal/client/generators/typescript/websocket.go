@@ -316,7 +316,7 @@ func (w *WebSocketGenerator) generateWebSocketClient(ws client.WebSocketEndpoint
 	fmt.Fprintf(&buf, "/**\n * %s\n", className)
 
 	if ws.Description != "" {
-		fmt.Fprintf(&buf, " * %s\n", ws.Description)
+		buf.WriteString(jsdocBody(ws.Description, " * "))
 	}
 
 	buf.WriteString(" * \n")
@@ -395,7 +395,7 @@ func (w *WebSocketGenerator) generateWebSocketClient(ws client.WebSocketEndpoint
 	buf.WriteString("      this.setState(ConnectionState.CONNECTING);\n")
 	buf.WriteString("      this.closed = false;\n\n")
 
-	fmt.Fprintf(&buf, "      const wsURL = this.config.baseURL.replace(/^http/, 'ws') + '%s';\n\n", ws.Path)
+	fmt.Fprintf(&buf, "      const wsURL = this.config.baseURL.replace(/^http/, 'ws') + %s;\n\n", jsonString(ws.Path))
 
 	buf.WriteString("      // Setup connection timeout\n")
 	buf.WriteString("      this.connectionTimeoutId = setTimeout(() => {\n")
@@ -810,7 +810,7 @@ func (w *WebSocketGenerator) generateWebSocketClient(ws client.WebSocketEndpoint
 // generateClassName generates a class name for a WebSocket endpoint.
 func (w *WebSocketGenerator) generateClassName(ws client.WebSocketEndpoint) string {
 	if ws.ID != "" {
-		return w.toPascalCase(ws.ID) + "WSClient"
+		return tsIdent(w.toPascalCase(ws.ID)) + "WSClient"
 	}
 
 	return "WebSocketClient"

@@ -4,7 +4,6 @@ import (
 	"context"
 	"maps"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/xraph/forge"
@@ -64,6 +63,13 @@ func SessionMiddleware(opts SessionMiddlewareOptions) forge.Middleware {
 
 			// Get session from store
 			session, err := opts.Store.Get(ctx, sessionID)
+			if err == nil && sessionTimedOut(session, opts.Config, time.Now()) {
+				// Idle or absolute timeout reached. Remove it so the ID can
+				// never be used again, then treat it like any expired session.
+				_ = opts.Store.Delete(ctx, sessionID)
+				err = ErrSessionExpired
+			}
+
 			if err != nil {
 				if errors.Is(err, ErrSessionNotFound) || errors.Is(err, ErrSessionExpired) {
 					// Session not found or expired, delete cookie
@@ -91,20 +97,34 @@ func SessionMiddleware(opts SessionMiddlewareOptions) forge.Middleware {
 				return next(forgeCtx)
 			}
 
-			// Auto-renew session if enabled
-			if opts.Config.AutoRenew {
-				if err := opts.Store.Touch(ctx, sessionID, opts.Config.TTL); err != nil {
+			// Record the access. With AutoRenew the expiry moves forward by
+			// TTL, capped at the absolute lifetime. Without it the expiry is
+			// left where it is, but LastAccessedAt still has to move or the
+			// idle timeout would fire on a session that is in active use.
+			if opts.Config.AutoRenew || opts.Config.IdleTimeout > 0 {
+				now := time.Now()
+				ttl := sessionRenewTTL(session, opts.Config, now)
+
+				if err := opts.Store.Touch(ctx, sessionID, ttl); err != nil {
 					if opts.Logger != nil {
 						opts.Logger.Error("failed to touch session",
 							forge.F("session_id", sessionID),
 							forge.F("error", err),
 						)
 					}
+				} else {
+					session.LastAccessedAt = now
+					session.ExpiresAt = now.Add(ttl)
 				}
 			}
 
-			// Store session in Forge context
+			// Publish the session in both places handlers look for it. The
+			// forge context serves GetSessionFromForgeContext, and the request's
+			// context.Context serves GetSession, DestroySession and
+			// UpdateSession. Setting only the forge value left those helpers
+			// blind, so logout silently did nothing.
 			forgeCtx.Set("session", session)
+			forgeCtx.WithContext(WithSession(ctx, session))
 
 			// Track metrics
 			if opts.Metrics != nil {
@@ -150,11 +170,24 @@ func CreateSession(
 	return session, nil
 }
 
-// GetSession retrieves the session from standard context (for backward compatibility).
+// GetSession retrieves the session that SessionMiddleware placed in the
+// request's context.Context.
 func GetSession(ctx context.Context) (*Session, bool) {
 	session, ok := ctx.Value(SessionContextKey{}).(*Session)
+	if !ok || session == nil {
+		return nil, false
+	}
 
-	return session, ok
+	return session, true
+}
+
+// WithSession returns a copy of ctx that carries session under
+// SessionContextKey, so GetSession, DestroySession and UpdateSession can find
+// it. SessionMiddleware does this for every request with a valid session
+// cookie; call it yourself when you create a session mid-request and want
+// later code in the same request to see it.
+func WithSession(ctx context.Context, session *Session) context.Context {
+	return context.WithValue(ctx, SessionContextKey{}, session)
 }
 
 // GetSessionFromForgeContext retrieves the session from Forge context.
@@ -197,10 +230,11 @@ func DestroySession(
 	cookieManager *CookieManager,
 	cookieName string,
 ) error {
-	// Get session from context
+	// A missing session is reported rather than swallowed. Returning nil here
+	// made a logout handler believe it had ended the session when it had not.
 	session, ok := GetSession(ctx)
-	if !ok {
-		return nil // No session to destroy
+	if !ok || session == nil {
+		return ErrSessionNotFound
 	}
 
 	// Delete session from store
@@ -221,7 +255,7 @@ func UpdateSession(
 	ttl time.Duration,
 ) error {
 	session, ok := GetSession(ctx)
-	if !ok {
+	if !ok || session == nil {
 		return ErrSessionNotFound
 	}
 
@@ -261,13 +295,49 @@ func RequireSessionSimple() forge.Middleware {
 	}
 }
 
-// shouldSkipPath checks if the path should skip session handling.
-func shouldSkipPath(path string, skipPaths []string) bool {
-	for _, skipPath := range skipPaths {
-		if strings.HasPrefix(path, skipPath) {
-			return true
-		}
+// defaultSessionAbsoluteTimeout caps a session's lifetime when
+// SessionConfig.AbsoluteTimeout is not set.
+const defaultSessionAbsoluteTimeout = 7 * 24 * time.Hour
+
+// sessionAbsoluteTimeout returns the maximum lifetime of a session under cfg.
+func sessionAbsoluteTimeout(cfg SessionConfig) time.Duration {
+	if cfg.AbsoluteTimeout > 0 {
+		return cfg.AbsoluteTimeout
+	}
+
+	return max(defaultSessionAbsoluteTimeout, cfg.TTL)
+}
+
+// sessionTimedOut reports whether the session has passed its idle timeout or
+// its absolute lifetime. Stores only track ExpiresAt, so these two limits are
+// enforced here, on the request path, for every store.
+func sessionTimedOut(session *Session, cfg SessionConfig, now time.Time) bool {
+	if cfg.IdleTimeout > 0 && !session.LastAccessedAt.IsZero() &&
+		now.Sub(session.LastAccessedAt) > cfg.IdleTimeout {
+		return true
+	}
+
+	if !session.CreatedAt.IsZero() && now.After(session.CreatedAt.Add(sessionAbsoluteTimeout(cfg))) {
+		return true
 	}
 
 	return false
+}
+
+// sessionRenewTTL returns the TTL to pass to SessionStore.Touch for this
+// access. AutoRenew extends to a full TTL; otherwise the current expiry is
+// kept. Either way the result never reaches past the absolute lifetime.
+func sessionRenewTTL(session *Session, cfg SessionConfig, now time.Time) time.Duration {
+	ttl := session.ExpiresAt.Sub(now)
+	if cfg.AutoRenew && cfg.TTL > 0 {
+		ttl = cfg.TTL
+	}
+
+	if !session.CreatedAt.IsZero() {
+		if remaining := session.CreatedAt.Add(sessionAbsoluteTimeout(cfg)).Sub(now); ttl > remaining {
+			ttl = remaining
+		}
+	}
+
+	return max(ttl, 0)
 }

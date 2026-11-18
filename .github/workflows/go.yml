@@ -204,15 +204,21 @@ jobs:
   security:
     name: Security Scan
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # A dependency change misses the module cache, and gosec alone can then
+    # take close to 10 minutes.
+    timeout-minutes: 25
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
 
+      # Scan with the newest 1.26 patch release rather than the go.mod
+      # minimum (1.26.0), so govulncheck reports what affects a build made
+      # with a current toolchain instead of long-fixed standard library bugs.
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version: '1.26.x'
+          check-latest: true
 
       - name: Run gosec
         run: |

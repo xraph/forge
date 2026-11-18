@@ -257,6 +257,10 @@ func (g *Generator) Generate(ctx context.Context, specIface generators.APISpec, 
 		return nil, err
 	}
 
+	if err := spec.CheckTypeNames("TypeScript", isTSTypeName); err != nil {
+		return nil, err
+	}
+
 	genClient := &generators.GeneratedClient{
 		Files: make(map[string]string),
 		// Warnings raised while the specification was being built come first:
@@ -1188,6 +1192,56 @@ func escapeJSDocTerminator(s string) string {
 	return strings.ReplaceAll(s, "*/", "*\\/")
 }
 
+// normalizeNewlines turns "\r\n" and a bare "\r" into "\n", so text taken from
+// a specification splits into the lines an editor would show. A bare "\r" left
+// in place renders as an overwrite in a terminal and hides whatever came
+// before it on the line.
+func normalizeNewlines(s string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(s, "\r\n", "\n"), "\r", "\n")
+}
+
+// jsdocBody renders specification text as the continuation lines of a JSDoc
+// block, every line starting with prefix (" * " plus indentation).
+//
+// Summaries and descriptions are written by whoever authored the
+// specification, and a client is often generated from one the user did not
+// write. Printed raw, a summary containing "*/" closed the comment and the rest
+// of the line became class body: "*/ static __p = (globalThis.X = 1); /*" ran
+// when the generated module loaded.
+func jsdocBody(text, prefix string) string {
+	var buf strings.Builder
+
+	for line := range strings.SplitSeq(escapeJSDocTerminator(normalizeNewlines(text)), "\n") {
+		if line == "" {
+			buf.WriteString(strings.TrimRight(prefix, " "))
+		} else {
+			buf.WriteString(prefix)
+			buf.WriteString(line)
+		}
+
+		buf.WriteString("\n")
+	}
+
+	return buf.String()
+}
+
+// jsdocInline makes specification text safe to place inside a single JSDoc
+// line: the comment terminator is escaped and line breaks become spaces, so
+// the text cannot end the comment or start a new line of its own.
+func jsdocInline(text string) string {
+	return strings.ReplaceAll(escapeJSDocTerminator(normalizeNewlines(text)), "\n", " ")
+}
+
+// escapeTemplateLiteral escapes text for the inside of a JavaScript template
+// literal. Backslash, backtick and "${" are the only sequences that mean
+// anything there; every other character, line breaks included, is literal.
+func escapeTemplateLiteral(s string) string {
+	s = strings.ReplaceAll(s, "\\", "\\\\")
+	s = strings.ReplaceAll(s, "`", "\\`")
+
+	return strings.ReplaceAll(s, "${", "\\${")
+}
+
 // propertyJSDoc renders a schema's description and deprecation as a JSDoc
 // block, or the empty string when there is nothing to say. An empty comment
 // is worse than no comment, so both fields absent yields no output.
@@ -1202,7 +1256,7 @@ func propertyJSDoc(schema *client.Schema, indent string) string {
 		return ""
 	}
 
-	description := escapeJSDocTerminator(schema.Description)
+	description := escapeJSDocTerminator(normalizeNewlines(schema.Description))
 
 	// Single-line form when there is only a description and it has no newline.
 	if description != "" && !schema.Deprecated && !strings.Contains(description, "\n") {

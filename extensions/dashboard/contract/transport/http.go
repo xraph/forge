@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"mime"
 	"net/http"
+	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	dashauth "github.com/xraph/forge/extensions/dashboard/auth"
@@ -52,6 +55,26 @@ func WithMaxBodyBytes(n int64) HandlerOption {
 	}
 }
 
+// WithTrustedOrigins lists browser origins (scheme://host[:port]) allowed to
+// send commands cross-site. By default the handler refuses a command a
+// browser marks as cross-site, which is what a forged form or fetch from
+// another site looks like. A deployment that serves the dashboard client from
+// a different site than the API, behind CORS, names that client's origin
+// here.
+func WithTrustedOrigins(origins ...string) HandlerOption {
+	return func(h *handler) {
+		for _, o := range origins {
+			if o = strings.TrimRight(strings.TrimSpace(o), "/"); o != "" {
+				if h.trustedOrigins == nil {
+					h.trustedOrigins = make(map[string]bool)
+				}
+
+				h.trustedOrigins[strings.ToLower(o)] = true
+			}
+		}
+	}
+}
+
 // NewHandler returns the POST /api/dashboard/{envelope} handler.
 func NewHandler(reg contract.Registry, wreg contract.WardenRegistry, disp Dispatcher, audit contract.AuditEmitter, opts ...HandlerOption) http.Handler {
 	if disp == nil {
@@ -88,6 +111,9 @@ type handler struct {
 	audit   contract.AuditEmitter
 	csrfMgr *security.CSRFManager // optional; nil disables CSRF validation
 	maxBody int64                 // envelope size cap; always > 0
+	// trustedOrigins are origins allowed to send commands cross-site, keyed
+	// lower-case without a trailing slash.
+	trustedOrigins map[string]bool
 }
 
 func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -159,6 +185,8 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	user := dashauth.UserFromContext(r.Context())
+
 	if req.Kind == contract.KindCommand {
 		if req.IdempotencyKey == "" || req.CSRF == "" {
 			writeError(w, http.StatusBadRequest, &contract.Error{Code: contract.CodeBadRequest, Message: "command requires csrf and idempotencyKey"})
@@ -166,14 +194,30 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if h.csrfMgr != nil && !h.csrfMgr.ValidateToken(req.CSRF) {
+		// The token is bound to the caller it was minted for, so one fetched
+		// by somebody else (an attacker minting their own) does not validate.
+		if h.csrfMgr != nil && !h.csrfMgr.ValidateTokenFor(req.CSRF, CSRFIdentity(user)) {
 			writeError(w, http.StatusForbidden, &contract.Error{Code: contract.CodeUnauthenticated, Message: "csrf token invalid"})
+
+			return
+		}
+
+		// A cross-site HTML form can only send a "simple" content type
+		// (text/plain, form encodings) without a CORS preflight. Requiring
+		// JSON means a forged command has to pass the preflight first.
+		if !isJSONContentType(r.Header.Get("Content-Type")) {
+			writeError(w, http.StatusUnsupportedMediaType, &contract.Error{Code: contract.CodeBadRequest, Message: "commands require Content-Type: application/json"})
+
+			return
+		}
+
+		if !h.sameSiteOrTrusted(r) {
+			writeError(w, http.StatusForbidden, &contract.Error{Code: contract.CodePermissionDenied, Message: "cross-site command refused"})
 
 			return
 		}
 	}
 
-	user := dashauth.UserFromContext(r.Context())
 	p := contract.PrincipalFor(user)
 
 	if !in.Requires.Allow(user, nil) {
@@ -245,6 +289,65 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	writeOK(w, contract.Response{
 		OK: true, Envelope: req.Envelope, Kind: req.Kind, Data: data, Meta: meta,
 	})
+}
+
+// isJSONContentType reports whether the Content-Type header names
+// application/json, with or without parameters such as charset.
+func isJSONContentType(v string) bool {
+	if v == "" {
+		return false
+	}
+
+	mt, _, err := mime.ParseMediaType(v)
+
+	return err == nil && mt == "application/json"
+}
+
+// sameSiteOrTrusted decides whether a command may come from where the
+// browser says it came from. Fetch Metadata is the primary signal: every
+// current browser sends Sec-Fetch-Site, and "cross-site" is exactly the
+// forged-request case. Older browsers that send only Origin are checked
+// against the request's own host. A request with neither header did not come
+// from a browser page, so there is no victim session to ride and it passes;
+// the CSRF token and the auth gate still apply to it.
+func (h *handler) sameSiteOrTrusted(r *http.Request) bool {
+	origin := strings.ToLower(strings.TrimRight(r.Header.Get("Origin"), "/"))
+	if origin != "" && h.trustedOrigins[origin] {
+		return true
+	}
+
+	switch r.Header.Get("Sec-Fetch-Site") {
+	case "cross-site":
+		return false
+	case "same-origin", "same-site", "none":
+		return true
+	}
+
+	if origin == "" {
+		return true
+	}
+
+	if origin == "null" {
+		return false
+	}
+
+	u, err := url.Parse(origin)
+	if err != nil || u.Host == "" {
+		return false
+	}
+
+	if strings.EqualFold(u.Host, r.Host) {
+		return true
+	}
+
+	// Behind a proxy that rewrites Host, the original is in X-Forwarded-Host.
+	if fwd := r.Header.Get("X-Forwarded-Host"); fwd != "" {
+		first, _, _ := strings.Cut(fwd, ",")
+
+		return strings.EqualFold(u.Host, strings.TrimSpace(first))
+	}
+
+	return false
 }
 
 func validateKind(req contract.Request) error {

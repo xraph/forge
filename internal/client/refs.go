@@ -86,14 +86,31 @@ func refTargetName(ref string) string {
 // does; calling it twice over one specification would say everything twice.
 func (s *APISpec) ValidateRefs() {
 	dangling := make(map[string]string)
+
+	s.walkSurface(func(origin string, schema *Schema) {
+		walkInlineRefs(schema, func(ref string) {
+			s.noteDanglingRef(dangling, ref, origin)
+		})
+	})
+
+	s.warnDanglingRefs(dangling)
+}
+
+// walkSurface calls visit with every schema root the client surface carries,
+// labelled with where it was written: each endpoint's parameters and bodies,
+// each channel, the streaming extensions, and finally every component schema
+// in name order.
+//
+// The order is a contract with ValidateRefs. A pointer written on an endpoint
+// is better reported against the endpoint than against some component that
+// repeats it, and first-writer-wins there makes that a question of order. In
+// name order because map order would otherwise decide which of two components
+// owns a pointer they both write.
+func (s *APISpec) walkSurface(visit func(origin string, schema *Schema)) {
 	origin := ""
 
-	note := func(ref string) {
-		s.noteDanglingRef(dangling, ref, origin)
-	}
-
 	walk := func(schema *Schema) {
-		walkInlineRefs(schema, note)
+		visit(origin, schema)
 	}
 
 	walkParams := func(params []Parameter) {
@@ -164,18 +181,65 @@ func (s *APISpec) ValidateRefs() {
 
 	s.walkStreamingFeatures(walk, walkParams)
 
-	// Components last, and in name order. Last because a pointer written on an
-	// endpoint is better reported against the endpoint than against some
-	// component that repeats it, and first-writer-wins below makes that a
-	// question of order. In name order because map order would otherwise
-	// decide which of two components owns a pointer they both write.
 	for _, name := range sortedKeys(s.Schemas) {
 		origin = fmt.Sprintf("component schema %q", name)
 
 		walk(s.Schemas[name])
 	}
+}
 
-	s.warnDanglingRefs(dangling)
+// CheckTypeNames refuses a specification whose schema names cannot be written
+// as type names in the target language.
+//
+// Generators emit a component schema's name, and the last segment of every
+// pointer at one, verbatim wherever the type is declared or used. A name is
+// text from the specification, and the specification is not always written by
+// the person running the generator: a name such as
+// "X {} ; globalThis.PWN=1; interface Y" became running code in the generated
+// TypeScript client. Rejecting the name is safer than rewriting it, because a
+// rewrite has to be applied identically at every site that prints the name,
+// and one missed site is the same injection again.
+//
+// valid decides what the language accepts as an identifier. lang only labels
+// the error.
+func (s *APISpec) CheckTypeNames(lang string, valid func(string) bool) error {
+	bad := make(map[string]string)
+
+	note := func(name, origin string) {
+		if name == "" || valid(name) {
+			return
+		}
+
+		if _, seen := bad[name]; !seen {
+			bad[name] = origin
+		}
+	}
+
+	for _, name := range sortedKeys(s.Schemas) {
+		note(name, fmt.Sprintf("component schema %q", name))
+	}
+
+	s.walkSurface(func(origin string, schema *Schema) {
+		walkInlineRefs(schema, func(ref string) {
+			if ref == "" {
+				return
+			}
+
+			note(ref[strings.LastIndex(ref, "/")+1:], origin)
+		})
+	})
+
+	if len(bad) == 0 {
+		return nil
+	}
+
+	lines := make([]string, 0, len(bad))
+	for _, name := range sortedKeys(bad) {
+		lines = append(lines, fmt.Sprintf("%q (from %s)", name, bad[name]))
+	}
+
+	return fmt.Errorf("cannot generate a %s client: these schema names are not valid %s identifiers, rename them in the specification: %s",
+		lang, lang, strings.Join(lines, ", "))
 }
 
 // noteDanglingRef records a pointer that asserts a component schema exists and

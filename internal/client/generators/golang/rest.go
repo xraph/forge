@@ -2,6 +2,7 @@ package golang
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/xraph/forge/internal/client"
@@ -131,10 +132,10 @@ func (r *RESTGenerator) generateEndpointMethod(endpoint client.Endpoint, spec *c
 	methodName := r.generateMethodName(endpoint)
 
 	// Generate method signature
-	fmt.Fprintf(&buf, "// %s %s\n", methodName, endpoint.Summary)
+	buf.WriteString(goComment(strings.TrimRight(methodName+" "+endpoint.Summary, " ")))
 
 	if endpoint.Description != "" {
-		fmt.Fprintf(&buf, "// %s\n", endpoint.Description)
+		buf.WriteString(goComment(endpoint.Description))
 	}
 
 	if endpoint.Deprecated {
@@ -172,10 +173,10 @@ func (r *RESTGenerator) generateEndpointMethod(endpoint client.Endpoint, spec *c
 		for _, param := range endpoint.QueryParams {
 			paramName := r.toGoParamName(param.Name)
 			if param.Required {
-				fmt.Fprintf(&buf, "\tq.Set(\"%s\", fmt.Sprint(%s))\n", param.Name, paramName)
+				fmt.Fprintf(&buf, "\tq.Set(%s, fmt.Sprint(%s))\n", strconv.Quote(param.Name), paramName)
 			} else {
 				fmt.Fprintf(&buf, "\tif %s != nil {\n", paramName)
-				fmt.Fprintf(&buf, "\t\tq.Set(\"%s\", fmt.Sprint(*%s))\n", param.Name, paramName)
+				fmt.Fprintf(&buf, "\t\tq.Set(%s, fmt.Sprint(*%s))\n", strconv.Quote(param.Name), paramName)
 				buf.WriteString("\t}\n")
 			}
 		}
@@ -202,8 +203,8 @@ func (r *RESTGenerator) generateEndpointMethod(endpoint client.Endpoint, spec *c
 	}
 
 	// Make the request
-	fmt.Fprintf(&buf, "\terr := c.doRequest(ctx, \"%s\", path, %s, %s)\n",
-		endpoint.Method,
+	fmt.Fprintf(&buf, "\terr := c.doRequest(ctx, %s, path, %s, %s)\n",
+		strconv.Quote(endpoint.Method),
 		r.orNil(requestVar),
 		r.orNil(resultVar))
 
@@ -308,22 +309,72 @@ func (r *RESTGenerator) generateReturnType(endpoint client.Endpoint, spec *clien
 }
 
 // generatePathExpression generates the path expression with parameters.
+//
+// The literal parts of the path are Go string literals made by strconv.Quote,
+// because the path is specification text and printing it between bare quotes
+// let a path key close the string and add code of its own.
+//
+// Each parameter value is passed through url.PathEscape. Concatenated raw, a
+// value such as "../admin/users?role=admin#" changed which route the request
+// reached and added a query string the caller never asked for.
 func (r *RESTGenerator) generatePathExpression(endpoint client.Endpoint) string {
-	path := endpoint.Path
-
-	// Replace path parameters
-	for _, param := range endpoint.PathParams {
-		paramName := r.toGoParamName(param.Name)
-		placeholder := fmt.Sprintf("{%s}", param.Name)
-		path = strings.ReplaceAll(path, placeholder, fmt.Sprintf("\" + fmt.Sprint(%s) + \"", paramName))
+	type placeholder struct {
+		text string
+		expr string
 	}
 
-	return fmt.Sprintf("\"%s\"", path)
+	placeholders := make([]placeholder, 0, len(endpoint.PathParams))
+	for _, param := range endpoint.PathParams {
+		placeholders = append(placeholders, placeholder{
+			text: "{" + param.Name + "}",
+			expr: fmt.Sprintf("url.PathEscape(fmt.Sprint(%s))", r.toGoParamName(param.Name)),
+		})
+	}
+
+	var parts []string
+
+	rest := endpoint.Path
+	for rest != "" {
+		// The earliest placeholder wins, so the path is consumed left to right
+		// whatever order the parameters were declared in.
+		at, which := -1, -1
+
+		for i, p := range placeholders {
+			if idx := strings.Index(rest, p.text); idx >= 0 && (at < 0 || idx < at) {
+				at, which = idx, i
+			}
+		}
+
+		if at < 0 {
+			parts = append(parts, strconv.Quote(rest))
+
+			break
+		}
+
+		if at > 0 {
+			parts = append(parts, strconv.Quote(rest[:at]))
+		}
+
+		parts = append(parts, placeholders[which].expr)
+		rest = rest[at+len(placeholders[which].text):]
+	}
+
+	if len(parts) == 0 {
+		return `""`
+	}
+
+	return strings.Join(parts, " + ")
 }
 
-// toGoParamName converts a parameter name to Go naming convention.
+// toGoParamName converts a parameter name to Go naming convention. The result
+// is printed as a function parameter, so it is reduced to identifier
+// characters and a keyword is suffixed.
 func (r *RESTGenerator) toGoParamName(name string) string {
-	// Convert to camelCase
+	return goParamIdent(r.camelParamName(name))
+}
+
+// camelParamName camelCases a parameter name on underscores and hyphens.
+func (r *RESTGenerator) camelParamName(name string) string {
 	parts := strings.FieldsFunc(name, func(r rune) bool {
 		return r == '_' || r == '-'
 	})

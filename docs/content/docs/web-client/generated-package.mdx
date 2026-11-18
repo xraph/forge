@@ -252,7 +252,19 @@ If a type in your API is already called `Capability` or `OperationName`, the mod
 
 Generated when the specification declares channels. They are `EventEmitter`-style clients with reconnection, heartbeat and connection-state management, and their public surface is unchanged by the cache runtime — `@forge-go/client-core` drives them rather than replacing them.
 
-For a Forge server, channels reach the specification through `forge.WithWebSocketMessages(...)` (or `WithSSEMessages`), which is what puts message schemas in the AsyncAPI document. A channel with no declared messages produces no client.
+For a Forge server, channels reach the specification through `forge.WithWebSocketMessages(...)` (or `WithSSEMessages`), which is what puts message schemas in the AsyncAPI document.
+
+### Streams in an OpenAPI document
+
+A route registered with `SSE`, `EventStream`, `WebSocket` or `WebTransport` also appears in `openapi.json`, because it is still a `GET`. Forge marks it there with `x-forge-protocol: sse` (or `websocket`, `webtransport`), declares an SSE route's response as `text/event-stream`, and declares a WebSocket route's response as `101 Switching Protocols`. A stream is therefore never generated as a REST call: you get no `query(...)` binding and no method in `rest.ts`.
+
+The generator also recognizes a stream in a document Forge did not write, such as one from a gateway. An operation counts as a stream when every 2xx response it declares is `text/event-stream`, or when its only success response is `101`.
+
+What happens to it depends on what else describes it:
+
+- **AsyncAPI describes the same path.** The channel is the stream's one description, with its event schemas and stream bindings, and the OpenAPI operation is dropped.
+- **Only OpenAPI describes it, and the path has no parameters.** It becomes a stream client of its kind with untyped events, built from the operation's path, summary, tags and security.
+- **Only OpenAPI describes it, and the path has parameters.** It is left out, and `forge client generate` prints a warning naming it. The generated stream clients do not yet substitute path parameters, so a client for `/instances/{id}/logs/stream` would connect to a literal `{id}`. Declare the route's messages with `WithSSEMessages` and generate from the AsyncAPI document as well.
 
 <Callout type="info">
 Forge emits REST operations to `openapi.json` and stream bindings to `asyncapi.json`, so pass both to get both:

@@ -93,6 +93,7 @@ func (p *ClientPlugin) Commands() []cli.Command {
 		p.listEndpoints,
 		cli.WithFlag(cli.NewStringSliceFlag("from-spec", "s", "Path to an OpenAPI/AsyncAPI spec file (repeatable)", nil)),
 		cli.WithFlag(cli.NewStringSliceFlag("from-url", "u", "URL to fetch an OpenAPI/AsyncAPI spec (repeatable)", nil)),
+		cli.WithFlag(cli.NewBoolFlag("allow-insecure-http", "", "Allow fetching a --from-url spec over plain http from a non-localhost host", false)),
 		cli.WithFlag(cli.NewStringFlag("type", "t", "Filter by type (rest, ws, sse)", "")),
 	))
 
@@ -114,6 +115,7 @@ func clientGenerationFlags() []cli.CommandOption {
 	return []cli.CommandOption{
 		cli.WithFlag(cli.NewStringSliceFlag("from-spec", "s", "Path to an OpenAPI/AsyncAPI spec file (repeatable)", nil)),
 		cli.WithFlag(cli.NewStringSliceFlag("from-url", "u", "URL to fetch an OpenAPI/AsyncAPI spec (repeatable)", nil)),
+		cli.WithFlag(cli.NewBoolFlag("allow-insecure-http", "", "Allow fetching a --from-url spec over plain http from a non-localhost host", false)),
 		cli.WithFlag(cli.NewStringFlag("language", "l", "Target language (go, typescript, dart)", "")),
 		cli.WithFlag(cli.NewStringFlag("output", "o", "Output directory", "")),
 		cli.WithFlag(cli.NewStringFlag("package", "p", "Package/module name", "")),
@@ -215,6 +217,10 @@ type generationPlan struct {
 	// because nothing said otherwise" and an instruction that a clients: block
 	// cannot satisfy. See expandClients.
 	pinnedOutput bool
+	// allowInsecureHTTP permits plain http spec URLs on non-loopback hosts
+	// (--allow-insecure-http or source.allow_insecure_http). Kept on the plan
+	// because watch re-fetches URL sources long after resolution.
+	allowInsecureHTTP bool
 }
 
 // resolveMergedSpec parses every source in specPaths without resolving entity
@@ -729,6 +735,7 @@ func (p *ClientPlugin) resolveGenerationPlan(ctx cli.CommandContext) (*generatio
 	}
 
 	entries := clientConfig.Source.Entries()
+	allowInsecureHTTP := ctx.Bool("allow-insecure-http") || clientConfig.Source.AllowInsecureHTTP
 
 	for _, path := range ctx.StringSlice("from-spec") {
 		entries = append(entries, SourceEntry{Type: "file", Path: path})
@@ -764,7 +771,7 @@ func (p *ClientPlugin) resolveGenerationPlan(ctx cli.CommandContext) (*generatio
 		specURLs = append(specURLs, "")
 	} else {
 		for _, entry := range entries {
-			path, url, entryCleanup, rerr := resolveSourceEntry(ctx, workDir, normalizeEntryType(entry))
+			path, url, entryCleanup, rerr := resolveSourceEntry(ctx, workDir, normalizeEntryType(entry), allowInsecureHTTP)
 			if entryCleanup != nil {
 				cleanups = append(cleanups, entryCleanup)
 			}
@@ -925,6 +932,8 @@ func (p *ClientPlugin) resolveGenerationPlan(ctx cli.CommandContext) (*generatio
 		cleanup:      cleanup,
 		clients:      clientConfig.Clients,
 		pinnedOutput: ctx.Flag("output").IsSet(),
+
+		allowInsecureHTTP: allowInsecureHTTP,
 	}, nil
 }
 
@@ -933,7 +942,7 @@ func (p *ClientPlugin) resolveGenerationPlan(ctx cli.CommandContext) (*generatio
 // entry is a URL. url is the entry's URL when it came from HTTP, or "" for a
 // local file -- see generationPlan.specURLs. cleanup releases anything this
 // call allocated and is nil when there is nothing to release.
-func resolveSourceEntry(ctx cli.CommandContext, workDir string, entry SourceEntry) (path, url string, cleanup func(), err error) {
+func resolveSourceEntry(ctx cli.CommandContext, workDir string, entry SourceEntry, allowInsecureHTTP bool) (path, url string, cleanup func(), err error) {
 	switch entry.Type {
 	case "url":
 		if entry.URL == "" {
@@ -944,7 +953,7 @@ func resolveSourceEntry(ctx cli.CommandContext, workDir string, entry SourceEntr
 
 		spinner := ctx.Spinner("Downloading specification...")
 
-		specData, ferr := fetchSpecFromURL(ctx.Context(), entry.URL, 0)
+		specData, ferr := fetchSpecFromURL(ctx.Context(), entry.URL, 0, allowInsecureHTTP)
 		if ferr != nil {
 			spinner.Stop(cli.Red("✗ Failed"))
 
@@ -1079,7 +1088,16 @@ func (p *ClientPlugin) listEndpoints(ctx cli.CommandContext) error {
 		// Fetch from URL
 		ctx.Info("Fetching spec from: " + fromURL)
 
-		specData, err := fetchSpecFromURL(ctx.Context(), fromURL, 0)
+		// The same opt-in generate honours: the flag, or the config file's
+		// source.allow_insecure_http.
+		allowInsecureHTTP := ctx.Bool("allow-insecure-http")
+		if !allowInsecureHTTP {
+			if cfg, cerr := LoadClientConfig(workDir); cerr == nil {
+				allowInsecureHTTP = cfg.Source.AllowInsecureHTTP
+			}
+		}
+
+		specData, err := fetchSpecFromURL(ctx.Context(), fromURL, 0, allowInsecureHTTP)
 		if err != nil {
 			return fmt.Errorf("fetch spec from URL: %w", err)
 		}

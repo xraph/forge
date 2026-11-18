@@ -1,6 +1,7 @@
 package webrtc
 
 import (
+	"context"
 	"time"
 )
 
@@ -38,7 +39,37 @@ type Config struct {
 	// Security
 	RequireAuth bool
 	AllowGuests bool
+
+	// RoomAuthorizer decides who may join a call room through the signaling
+	// endpoint, and so who may create one by naming it in the URL. With
+	// none set, the endpoint refuses every join: the room ID comes straight
+	// from the URL, so without a policy anyone signed in could join any
+	// call. Pass streaming's RoomAuthorizer to reuse its room membership
+	// rules, or AllowAllRooms to admit every signed-in user knowingly.
+	RoomAuthorizer RoomAuthorizer
 }
+
+// RoomAuthorizer decides whether a user may join a call room. Its method
+// matches the streaming extension's auth.RoomAuthorizer, so that type can be
+// passed as is.
+type RoomAuthorizer interface {
+	CanJoin(ctx context.Context, userID, roomID string) (bool, error)
+}
+
+// RoomAuthorizerFunc adapts a function to RoomAuthorizer.
+type RoomAuthorizerFunc func(ctx context.Context, userID, roomID string) (bool, error)
+
+// CanJoin implements RoomAuthorizer.
+func (f RoomAuthorizerFunc) CanJoin(ctx context.Context, userID, roomID string) (bool, error) {
+	return f(ctx, userID, roomID)
+}
+
+// AllowAllRooms admits every signed-in user to every room. It is the
+// signaling endpoint's behaviour before rooms were authorized; use it only
+// when room IDs are unguessable or every user may join every call.
+var AllowAllRooms RoomAuthorizer = RoomAuthorizerFunc(func(context.Context, string, string) (bool, error) {
+	return true, nil
+})
 
 // Topology represents the WebRTC connection topology.
 type Topology string
@@ -227,6 +258,14 @@ func WithRecording(path string) ConfigOption {
 	return func(c *Config) {
 		c.RecordingEnabled = true
 		c.RecordingPath = path
+	}
+}
+
+// WithRoomAuthorizer sets the policy the signaling endpoint checks before a
+// user joins (or creates) a call room.
+func WithRoomAuthorizer(a RoomAuthorizer) ConfigOption {
+	return func(c *Config) {
+		c.RoomAuthorizer = a
 	}
 }
 

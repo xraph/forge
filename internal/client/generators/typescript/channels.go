@@ -293,7 +293,7 @@ func (c *ChannelsGenerator) generateChannelClient(spec *client.APISpec, config c
 		wsPath = spec.Streaming.Channels.Path
 	}
 
-	fmt.Fprintf(&buf, "      let wsURL = this.config.baseURL.replace(/^http/, 'ws') + '%s';\n\n", wsPath)
+	fmt.Fprintf(&buf, "      let wsURL = this.config.baseURL.replace(/^http/, 'ws') + %s;\n\n", jsonString(wsPath))
 
 	// Add auth to URL
 	if config.IncludeAuth {

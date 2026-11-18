@@ -54,7 +54,7 @@ var extensionDecisions = map[string]struct {
 
 	"x-forge-id": {knownGap, "read in entity.go's isMarkedIdentityField, which takes no *APISpec and is reached through anyMatch. Threading a spec through that call chain is a wider change than the warning is worth today. A wrong type here comes only from a hand-written document, since the generator emits a bool."},
 
-	"x-forge-protocol": {knownGap, "read by isWebTransportChannel; a non-string value is treated as absent and the channel is classified as a socket or SSE stream by its messages, which is what it would have been before the marker existed. The value is generated, never hand-written."},
+	"x-forge-protocol": {knownGap, "read in two places. On an OpenAPI operation, resolveEndpointStream warns on anything but sse, websocket or webtransport and falls back to classifying the endpoint by its responses. On an AsyncAPI channel, isWebTransportChannel treats a non-string value as absent and the channel is classified as a socket or SSE stream by its messages, which is what it would have been before the marker existed; there the value is generated, never hand-written."},
 
 	"x-forge-type": {knownGap, "read by resolveStreamEntityNames to match a stream binding to a renamed component. A non-string value is treated as absent, and the binding then falls through to the bare-name lookup, whose miss registerStreamBindingEntities already reports; the value is generated, never hand-written."},
 }

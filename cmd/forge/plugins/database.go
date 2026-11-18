@@ -292,7 +292,7 @@ func (p *DatabasePlugin) initMigrations(ctx cli.CommandContext) error {
 
 	if err := p.runWithGoMigrations(ctx, "init", dsn); err != nil {
 		ctx.Println("")
-		ctx.Error(fmt.Errorf("⚠️  migration package scaffolded, but the migration tables were not created (dsn: %s): %w", dsn, err))
+		ctx.Error(fmt.Errorf("⚠️  migration package scaffolded, but the migration tables were not created (dsn: %s): %w", redactDSN(dsn), err))
 
 		return err
 	}

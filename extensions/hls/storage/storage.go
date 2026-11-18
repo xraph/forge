@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"path"
@@ -35,6 +36,10 @@ func NewHLSStorage(storage Backend, prefix string) *HLSStorage {
 // Segment operations
 
 func (s *HLSStorage) SaveSegment(ctx context.Context, streamID, variantID string, segmentNum int, data []byte) error {
+	if err := checkKeyParts(streamID, variantID); err != nil {
+		return err
+	}
+
 	key := s.segmentKey(streamID, variantID, segmentNum)
 
 	return s.storage.Put(ctx, key, bytes.NewReader(data), "video/MP2T")
@@ -73,6 +78,10 @@ func (s *HLSStorage) SegmentExists(ctx context.Context, streamID, variantID stri
 // Playlist operations
 
 func (s *HLSStorage) SavePlaylist(ctx context.Context, streamID, variantID, content string) error {
+	if err := checkKeyParts(streamID, variantID); err != nil {
+		return err
+	}
+
 	key := s.playlistKey(streamID, variantID)
 
 	return s.storage.Put(ctx, key, strings.NewReader(content), "application/vnd.apple.mpegurl")
@@ -333,6 +342,23 @@ func (s *HLSStorage) GetStorageStats(ctx context.Context) (*StorageStats, error)
 }
 
 // Key generation helpers
+
+// ErrInvalidKeyPart is returned when a stream or variant ID could not be used
+// as a single key segment.
+var ErrInvalidKeyPart = errors.New("storage: invalid stream or variant id")
+
+// checkKeyParts refuses IDs that path.Join would not keep inside their own
+// segment. The keys are built with path.Join, which resolves ".." and
+// follows "/", so an unchecked ID could address another stream's objects.
+func checkKeyParts(parts ...string) error {
+	for _, p := range parts {
+		if p == "" || p == "." || p == ".." || strings.ContainsAny(p, `/\`) {
+			return fmt.Errorf("%w: %q", ErrInvalidKeyPart, p)
+		}
+	}
+
+	return nil
+}
 
 func (s *HLSStorage) segmentKey(streamID, variantID string, segmentNum int) string {
 	return path.Join(s.prefix, streamID, variantID, fmt.Sprintf("segment_%d.ts", segmentNum))

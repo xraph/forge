@@ -39,7 +39,8 @@ WithDistributed(enabled bool)
 WithNodeID(nodeID string)                       // generated when distributed and empty
 WithClusterID(clusterID string)
 WithFailover(enabled bool)
-WithAuth(required bool)                         // stored only
+WithManagementAPI(enabled bool)                 // mount /streams routes; off by default
+WithAuth(required bool)                         // mount /streams routes and require a signed-in caller
 WithCaching(enabled bool, ttl time.Duration)    // stored only
 WithRequireConfig(require bool)
 WithConfig(config Config)
@@ -97,7 +98,14 @@ type HLS interface {
 - Playlist helpers: NewPlaylistGenerator(baseURL), ParseResolution, FormatResolution,
   GenerateCodecsString(videoCodec, audioCodec).
 
-## HTTP routes (under base_path, registered on start, no auth)
+## HTTP routes (under base_path, registered on start)
+
+Management routes (everything under /streams) are mounted only with WithManagementAPI(true)
+or WithAuth(true). With WithAuth(true) they return 401 unless middleware ahead of them set
+"auth_context" (the auth extension does) or a non-empty "user_id" on the forge context.
+Playlist and segment routes are always mounted and never check auth. Ingest refuses a
+VariantID that is not one of the stream's variants (400) and Data over MaxSegmentSize (413).
+
 
 POST /hls/streams, GET /hls/streams, GET/DELETE /hls/streams/:streamID,
 POST /hls/streams/:streamID/start, /stop, /ingest (Segment JSON with base64 Data),
@@ -124,7 +132,7 @@ dvr_window_size, ...). Forge only reads config.yaml when EnableConfigAutoDiscove
   segments or stores output; TranscodeVideo reads a placeholder path.
 - Stream records are in memory only. Metadata is written to storage but never read back, so
   streams vanish on restart while their files remain.
-- Stored but unread: RequireAuth, MaxViewersPerStream, MaxBandwidthPerStream, MaxSegmentSize,
+- Stored but unread: MaxViewersPerStream, MaxBandwidthPerStream,
   EnableCaching, CacheTTL, SegmentRetention, RedirectToLeader, RedirectToOwner, EnableFailover.
   Cleanup trims each stream to the DVR window every CleanupInterval.
 - Distributed mode starts a coordinator on `consensus.ConsensusService` (registration fails if
