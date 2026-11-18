@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -26,6 +27,12 @@ const DefaultTag = "forge-dashboard-contributor"
 // sent as a bearer token on every request the dashboard makes to that
 // service.
 const APIKeyMetadata = "forge-api-key" //nolint:gosec // G101: a metadata key name, not a credential
+
+// SchemeMetadata is the instance metadata key a service sets to "https" to
+// say it serves its contract endpoints over TLS. The "scheme" and "protocol"
+// keys are read too, and an "https" tag counts the same, since discovery
+// backends differ in how they record it.
+const SchemeMetadata = "forge-scheme"
 
 // DiscoveryService is the interface the dashboard needs from a discovery service.
 // This decouples the dashboard from the discovery extension's separate Go module,
@@ -64,6 +71,31 @@ func (si *ServiceInstance) URL(scheme string) string {
 	return fmt.Sprintf("%s://%s:%d", scheme, si.Address, si.Port)
 }
 
+// Scheme returns "https" when the instance advertises TLS through
+// SchemeMetadata, "scheme" or "protocol" metadata, or an "https" tag, and
+// "http" otherwise.
+func (si *ServiceInstance) Scheme() string {
+	for _, key := range []string{SchemeMetadata, "scheme", "protocol"} {
+		if v, ok := si.Metadata[key]; ok && strings.EqualFold(strings.TrimSpace(v), "https") {
+			return "https"
+		}
+	}
+
+	for _, tag := range si.Tags {
+		if strings.EqualFold(tag, "https") {
+			return "https"
+		}
+	}
+
+	return "http"
+}
+
+// BaseURL is the address the dashboard uses to reach the instance: https
+// when the instance advertises it, plain http otherwise.
+func (si *ServiceInstance) BaseURL() string {
+	return si.URL(si.Scheme())
+}
+
 // GetMetadata retrieves metadata by key.
 func (si *ServiceInstance) GetMetadata(key string) (string, bool) {
 	val, ok := si.Metadata[key]
@@ -92,6 +124,11 @@ type Config struct {
 	Unregister func(name string)
 	// Logger receives registration events. Nil means a no-op logger.
 	Logger forge.Logger
+	// AllowInsecure permits plain http to an instance that is not on a
+	// loopback address and does not advertise https. Without it such an
+	// instance is skipped before anything is sent to it. Even with it, the
+	// instance's API key is not sent over plain http.
+	AllowInsecure bool
 }
 
 // tracked is one remote contributor the integration registered.
@@ -279,9 +316,23 @@ func (i *Integration) liveInstances(ctx context.Context) (map[string]*ServiceIns
 
 // sync fetches one instance's manifest and registers it, or re-registers it
 // if it changed since the last pass.
+//
+// The transport policy runs before the fetch, not after: by the time a
+// manifest is back, the request carrying the instance's API key has already
+// crossed the network.
 func (i *Integration) sync(ctx context.Context, inst *ServiceInstance) {
-	baseURL := inst.URL("http")
+	baseURL := inst.BaseURL()
 	apiKey, _ := inst.GetMetadata(APIKeyMetadata)
+
+	if err := contractremote.CheckTransport(baseURL, i.cfg.AllowInsecure); err != nil {
+		i.cfg.Logger.Warn("dashboard discovery: skipping contributor reachable only over plain http; advertise https or allow insecure remotes",
+			forge.F("service_id", inst.ID),
+			forge.F("url", baseURL),
+			forge.F("error", err.Error()),
+		)
+
+		return
+	}
 
 	m, err := contractremote.FetchManifest(ctx, baseURL, apiKey, nil)
 	if err != nil {

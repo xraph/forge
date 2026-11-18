@@ -43,11 +43,10 @@ func TestForwardingDispatcher_NotFoundWhenNoRemote(t *testing.T) {
 }
 
 // TestForwardingDispatcher_PropagatesUpstreamCookies guards the auth.login
-// post-condition: cookies the upstream's loginHandler writes via
+// post-condition for an endpoint that opted in with PropagateSetCookie:
+// cookies the upstream's loginHandler writes via
 // dashauth.ResponseWriterFromContext(ctx) must land on the host's
-// ResponseWriter so the browser actually receives auth_token. Without this
-// the forwarding dispatcher reads only the response body, drops Set-Cookie,
-// and the principal endpoint 401s on every subsequent request.
+// ResponseWriter so the browser actually receives auth_token.
 func TestForwardingDispatcher_PropagatesUpstreamCookies(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.SetCookie(w, &http.Cookie{Name: "auth_token", Value: "tkn_xyz", Path: "/", HttpOnly: true})
@@ -60,7 +59,7 @@ func TestForwardingDispatcher_PropagatesUpstreamCookies(t *testing.T) {
 	defer upstream.Close()
 
 	reg := &remoteRegistry{endpoints: map[string]contract.RemoteEndpoint{
-		"auth": {BaseURL: upstream.URL},
+		"auth": {BaseURL: upstream.URL, PropagateSetCookie: true},
 	}}
 	f := NewForwardingDispatcher(reg)
 
@@ -192,7 +191,7 @@ func TestForwardingDispatcher_SurfacesUpstreamError(t *testing.T) {
 	}
 }
 
-func TestForwardingDispatcher_ForwardsAuthHeaders(t *testing.T) {
+func TestForwardingDispatcher_ForwardsOptedInHeaders(t *testing.T) {
 	var sawAuthz, sawCookie, sawAPIKey string
 
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -204,7 +203,7 @@ func TestForwardingDispatcher_ForwardsAuthHeaders(t *testing.T) {
 	defer upstream.Close()
 
 	reg := &remoteRegistry{endpoints: map[string]contract.RemoteEndpoint{
-		"things": {BaseURL: upstream.URL, APIKey: "dashboard-secret"},
+		"things": {BaseURL: upstream.URL, APIKey: "dashboard-secret", ForwardHeaders: []string{"authorization", "Cookie"}},
 	}}
 	f := NewForwardingDispatcher(reg)
 
@@ -235,7 +234,7 @@ func TestForwardingDispatcher_ForwardsAuthHeaders(t *testing.T) {
 func TestForwardingDispatcher_NetworkErrorMapsToCodeUnavailable(t *testing.T) {
 	reg := &remoteRegistry{endpoints: map[string]contract.RemoteEndpoint{
 		// Reserved-for-documentation network: every dial will fail fast.
-		"things": {BaseURL: "http://198.51.100.1:65535"},
+		"things": {BaseURL: "http://198.51.100.1:65535", AllowInsecureHTTP: true},
 	}}
 	f := NewForwardingDispatcher(reg)
 

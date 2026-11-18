@@ -673,12 +673,21 @@ func (e *Extension) TraceStore() *collector.TraceStore {
 // baseURL is the upstream service root (e.g. https://svc.internal:8443);
 // the manifest endpoint is fetched at <baseURL>/_forge/contract/manifest
 // and envelopes are POSTed to <baseURL>/_forge/contract/dispatch. apiKey,
-// when non-empty, is sent as Authorization: Bearer on dashboard→service
-// hops; end-user identity flows in parallel via X-Forwarded-Authorization
-// and X-Forwarded-Cookie.
+// when non-empty, is sent as Authorization: Bearer on dashboard-to-service
+// hops. The end user's subject is sent as X-Forwarded-User; the user's own
+// Cookie and Authorization are sent only for headers named in
+// Config.RemoteForwardHeaders.
+//
+// A plain http baseURL is refused unless its host is a loopback address or
+// Config.AllowInsecureRemotes is set, and the check runs before the manifest
+// fetch so the API key is never sent in clear text.
 func (e *Extension) RegisterRemoteContractContributor(ctx context.Context, baseURL, apiKey string) error {
 	if e.contractRegistry == nil {
 		return errors.New("dashboard: contract registry not initialised")
+	}
+
+	if err := contractremote.CheckTransport(baseURL, e.config.AllowInsecureRemotes); err != nil {
+		return fmt.Errorf("dashboard: %w", err)
 	}
 
 	m, err := contractremote.FetchManifest(ctx, baseURL, apiKey, nil)
@@ -696,6 +705,13 @@ func (e *Extension) RegisterRemoteContractContributor(ctx context.Context, baseU
 func (e *Extension) registerRemoteManifest(m *contract.ContractManifest, endpoint contract.RemoteEndpoint) error {
 	if e.contractRegistry == nil {
 		return errors.New("dashboard: contract registry not initialised")
+	}
+
+	// Discovery builds the endpoint without knowing the dashboard's policy,
+	// so the policy is applied here, where both registration paths meet.
+	endpoint = e.applyRemotePolicy(endpoint)
+	if err := contractremote.CheckTransport(endpoint.BaseURL, endpoint.AllowInsecureHTTP); err != nil {
+		return fmt.Errorf("dashboard: %w", err)
 	}
 
 	if err := loader.Validate(m, e.wardenRegistry); err != nil {
@@ -718,13 +734,31 @@ func (e *Extension) registerRemoteManifest(m *contract.ContractManifest, endpoin
 	return nil
 }
 
+// applyRemotePolicy fills the forwarding policy of a remote endpoint from
+// the dashboard config wherever the endpoint does not set it itself.
+func (e *Extension) applyRemotePolicy(endpoint contract.RemoteEndpoint) contract.RemoteEndpoint {
+	if endpoint.ForwardHeaders == nil && len(e.config.RemoteForwardHeaders) > 0 {
+		endpoint.ForwardHeaders = append([]string(nil), e.config.RemoteForwardHeaders...)
+	}
+
+	endpoint.PropagateSetCookie = endpoint.PropagateSetCookie || e.config.RemotePropagateSetCookie
+	endpoint.AllowInsecureHTTP = endpoint.AllowInsecureHTTP || e.config.AllowInsecureRemotes
+
+	return endpoint
+}
+
 // SetDiscoveryService sets the discovery service used to find remote
 // contributors. Call it before the app runs, typically from a
 // PhaseAfterRegister hook, and turn discovery on with WithDiscovery(true).
 //
 // A remote service takes part by serving its intents with contract/server
 // and registering itself in discovery under DiscoveryTag. An instance's
-// "forge-api-key" metadata, when set, is sent to it as a bearer token.
+// "forge-api-key" metadata, when set, is sent to it as a bearer token, but
+// never over plain http to another host. An instance is reached over https
+// when it advertises it (discovery.SchemeMetadata set to "https", or an
+// "https" tag); otherwise over plain http, which for an instance not on a
+// loopback address is refused unless AllowInsecureRemotes is set, and even
+// then its API key is not sent.
 func (e *Extension) SetDiscoveryService(svc dashboarddiscovery.DiscoveryService) {
 	e.discoverySvc = svc
 }
@@ -739,12 +773,22 @@ func (e *Extension) startDiscovery(ctx context.Context) {
 		return
 	}
 
-	e.discoveryInteg = dashboarddiscovery.NewIntegration(e.discoverySvc, dashboarddiscovery.Config{
-		Tag:          e.config.DiscoveryTag,
-		PollInterval: e.config.DiscoveryPollInterval,
-		Register:     e.registerRemoteManifest,
-		Unregister:   e.UnregisterRemoteContractContributor,
-		Logger:       e.Logger(),
+	// The integration fetches each instance's manifest, with its API key,
+	// before handing it to registerRemoteManifest, so the transport policy
+	// is applied to what discovery returns rather than to what it registers.
+	svc := &transportPolicyDiscovery{
+		DiscoveryService: e.discoverySvc,
+		allowInsecure:    e.config.AllowInsecureRemotes,
+		logger:           e.Logger(),
+	}
+
+	e.discoveryInteg = dashboarddiscovery.NewIntegration(svc, dashboarddiscovery.Config{
+		Tag:           e.config.DiscoveryTag,
+		PollInterval:  e.config.DiscoveryPollInterval,
+		Register:      e.registerRemoteManifest,
+		Unregister:    e.UnregisterRemoteContractContributor,
+		Logger:        e.Logger(),
+		AllowInsecure: e.config.AllowInsecureRemotes,
 	})
 	e.discoveryInteg.Start(ctx)
 }
@@ -803,8 +847,10 @@ func (e *Extension) AuthChecker() dashauth.AuthChecker {
 }
 
 // EnableAuth turns on authentication support. Auth extensions such as authsome
-// call this from RegisterDashboardAuth. With auth on, the principal endpoint
-// answers 401 for a signed-out caller instead of an anonymous 200.
+// call this from RegisterDashboardAuth. With auth on, every dashboard route
+// refuses a signed-out caller with 401 and the principal endpoint answers 401
+// instead of an anonymous 200. It only takes effect if called before Start,
+// since the routes are mounted there.
 func (e *Extension) EnableAuth() {
 	e.config.EnableAuth = true
 }
@@ -812,7 +858,7 @@ func (e *Extension) EnableAuth() {
 // SetRequiredRoles restricts dashboard access to authenticated users that
 // hold at least one of the given roles. Pass nil/empty to clear the gate.
 // Auth extensions like authsome call this from RegisterDashboardAuth when
-// their own configuration declares a role list. The principal endpoint
+// their own configuration declares a role list. Every dashboard route
 // returns 403 PERMISSION_DENIED for users who don't qualify. Rendering that
 // as an "access denied" screen is the client's job.
 func (e *Extension) SetRequiredRoles(roles []string) {
@@ -854,19 +900,38 @@ func (e *Extension) registerRoutes() {
 		}
 	}
 
-	// The principal endpoint and the contract dispatch endpoint both call
-	// dashauth.UserFromContext at request time; without ForgeMiddleware on
-	// those routes the user is always nil and /principal 401s even with a
-	// valid auth_token cookie. The middleware is non-blocking (populates
-	// context on success, falls through silently on failure), so attaching
-	// it broadly is safe.
-	var routeOpts []forge.RouteOption
-	if e.config.EnableAuth && e.authChecker != nil {
-		routeOpts = append(routeOpts, forge.WithMiddleware(dashauth.ForgeMiddleware(e.authChecker)))
+	loginPath := e.config.BasePath + e.config.LoginPath
+
+	// With auth on, every route except the principal endpoint runs the
+	// blocking gate: it resolves the caller and refuses anonymous callers
+	// (401) and callers without a required role (403). The principal
+	// endpoint only gets the caller resolved, because answering "who am I"
+	// with its own 401 and loginPath is its whole job.
+	//
+	// With auth off, nothing is gated. That is the documented default for a
+	// dashboard on a private network, so it stays, but it is said loudly.
+	var routeOpts, principalOpts []forge.RouteOption
+
+	if e.config.EnableAuth {
+		routeOpts = append(routeOpts, forge.WithMiddleware(authGate(e.authChecker, e.config.RequiredRoles, loginPath, e.Logger())))
+
+		if e.authChecker != nil {
+			principalOpts = append(principalOpts, forge.WithMiddleware(dashauth.ForgeMiddleware(e.authChecker)))
+		} else {
+			e.Logger().Warn("dashboard: auth is enabled but no AuthChecker is set; every request is refused unless middleware upstream of the dashboard puts a user in the context with dashauth.WithUser",
+				forge.F("base_path", base),
+			)
+		}
+	} else {
+		e.Logger().Warn("dashboard: AUTH IS DISABLED. Every dashboard route, including commands, streams and exports, answers anyone who can reach this server. Enable it with WithEnableAuth(true) and an AuthChecker, or keep the dashboard off untrusted networks.",
+			forge.F("base_path", base),
+		)
 	}
 
 	if e.tenantResolver != nil {
-		routeOpts = append(routeOpts, forge.WithMiddleware(dashauth.TenantMiddleware(e.tenantResolver)))
+		tenant := forge.WithMiddleware(dashauth.TenantMiddleware(e.tenantResolver))
+		routeOpts = append(routeOpts, tenant)
+		principalOpts = append(principalOpts, tenant)
 	}
 
 	// Contract envelope endpoints, gated on the contract registry being
@@ -891,7 +956,7 @@ func (e *Extension) registerRoutes() {
 		// and EnableContractSecurity gates the contract path's enforcement).
 		if e.csrfMgr != nil && e.config.EnableContractSecurity {
 			must(router.GET(base+"/api/dashboard/v1/csrf",
-				transport.NewCSRFTokenHandler(e.csrfMgr, 12*time.Hour).ServeHTTP))
+				transport.NewCSRFTokenHandler(e.csrfMgr, e.csrfMgr.MaxAge()).ServeHTTP, routeOpts...))
 		}
 
 		// The principal endpoint surfaces auth state to whatever client is
@@ -902,20 +967,20 @@ func (e *Extension) registerRoutes() {
 		// loginPath to send the user to. RequiredRoles, if set, gets a 403 for
 		// authenticated users without a matching role.
 
-		loginPath := e.config.BasePath + e.config.LoginPath
 		must(router.GET(base+"/api/dashboard/v1/principal", handlers.NewPrincipalHandler(handlers.PrincipalOptions{
 			AuthEnabled:   e.config.EnableAuth,
 			LoginPath:     loginPath,
 			RequiredRoles: append([]string(nil), e.config.RequiredRoles...),
-		}), routeOpts...))
+		}), principalOpts...))
 	}
 
-	// Export endpoints
+	// Export endpoints. They dump the same data the dashboard shows, so they
+	// sit behind the same gate.
 	if e.config.EnableExport {
 		deps := &handlers.Deps{Collector: e.collector}
-		must(router.GET(base+"/export/json", handlers.HandleExportJSON(deps)))
-		must(router.GET(base+"/export/csv", handlers.HandleExportCSV(deps)))
-		must(router.GET(base+"/export/prometheus", handlers.HandleExportPrometheus(deps)))
+		must(router.GET(base+"/export/json", handlers.HandleExportJSON(deps), routeOpts...))
+		must(router.GET(base+"/export/csv", handlers.HandleExportCSV(deps), routeOpts...))
+		must(router.GET(base+"/export/prometheus", handlers.HandleExportPrometheus(deps), routeOpts...))
 	}
 
 	e.Logger().Debug("dashboard routes registered",
@@ -944,7 +1009,8 @@ func (e *Extension) handleContractPOST() http.HandlerFunc {
 	}
 
 	h := transport.NewHandlerWithCSRF(e.contractRegistry, e.wardenRegistry, e.dispatcher, e.auditEmitter, mgr,
-		transport.WithMaxBodyBytes(e.config.ContractMaxBodyBytes))
+		transport.WithMaxBodyBytes(e.config.ContractMaxBodyBytes),
+		transport.WithTrustedOrigins(e.config.TrustedOrigins...))
 
 	return h.ServeHTTP
 }

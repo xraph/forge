@@ -75,6 +75,9 @@ func main() {
 		hls.WithClusterID("hls-cluster"),
 		hls.WithFailover(true),
 		hls.WithCORS(true, "*"),
+		// Mount the /streams management routes. They are open here, which
+		// is only fine for a local demo; use WithAuth(true) behind real auth.
+		hls.WithManagementAPI(true),
 	)
 
 	// Register extensions

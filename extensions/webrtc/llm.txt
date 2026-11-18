@@ -96,8 +96,11 @@ JoinCall and LeaveCall on the extension update `webrtc.calls.*` and `webrtc.peer
 ## Not implemented yet
 
 - RegisterRoutes mounts a WebSocket at `/webrtc/signal/{roomID}` whose read loop drops every
-  message. The handler also asserts `ctx.Get("user_id").(string)` without a check, so it panics
-  unless global or group middleware has set `user_id`. Do your own signaling.
+  message. It refuses a caller without a non-empty string `user_id` on the forge context, and
+  refuses every join unless Config.RoomAuthorizer (WithRoomAuthorizer) admits the user to the
+  room; streaming's auth.RoomAuthorizer fits, AllowAllRooms admits everyone. An authorized
+  caller auto-creates the room. Signaling messages go to the target peer only (SendToUser).
+  Do your own signaling until the read loop is done.
 - SFU: rooms and the router exist but RTP isn't forwarded between participants.
 - StartScreenShare, StopScreenShare and GetQuality return ErrNotImplemented. The extension never
   builds a recorder or quality monitor, so GetRecorder and GetQualityMonitor return nil.

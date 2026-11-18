@@ -13,7 +13,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -34,6 +36,64 @@ const DefaultManifestPath = "/_forge/contract/manifest"
 // while leaving room for cold-path handlers.
 const DefaultTimeout = 10 * time.Second
 
+// DefaultMaxResponseBytes caps how much of an upstream's response the
+// forwarding dispatcher reads. A contract response is a JSON envelope; a
+// larger body is refused rather than buffered without bound.
+const DefaultMaxResponseBytes int64 = 10 << 20
+
+// ForwardedUserHeader carries the subject of the user the dashboard
+// authenticated to the upstream. It is a claim made by the dashboard, so an
+// upstream should only believe it on a request that also authenticated as
+// the dashboard (RemoteEndpoint.APIKey).
+const ForwardedUserHeader = "X-Forwarded-User"
+
+// CheckTransport refuses a plain http baseURL whose host is not a loopback
+// address unless allowInsecure is set. Envelopes carry the dashboard's API
+// key, the user's identity and whatever the intent returns, none of which
+// should cross a network in clear text by default.
+func CheckTransport(baseURL string, allowInsecure bool) error {
+	u, err := url.Parse(baseURL)
+	if err != nil {
+		return fmt.Errorf("remote: invalid base URL %q: %w", baseURL, err)
+	}
+
+	if !strings.EqualFold(u.Scheme, "http") || allowInsecure || isLoopbackHost(u.Hostname()) {
+		return nil
+	}
+
+	return fmt.Errorf("remote: refusing plain http to non-loopback contributor %s; use https or allow insecure remotes explicitly", u.Host)
+}
+
+// IsSecureTransport reports whether baseURL keeps what is sent to it off
+// the network in clear text: https, or plain http to a loopback address.
+// Credentials such as the dashboard's API key are only sent over a secure
+// transport, even when CheckTransport was told to allow an insecure one.
+func IsSecureTransport(baseURL string) bool {
+	u, err := url.Parse(baseURL)
+	if err != nil {
+		return false
+	}
+
+	switch strings.ToLower(u.Scheme) {
+	case "https":
+		return true
+	case "http":
+		return isLoopbackHost(u.Hostname())
+	}
+
+	return false
+}
+
+func isLoopbackHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+
+	ip := net.ParseIP(host)
+
+	return ip != nil && ip.IsLoopback()
+}
+
 // ForwardingDispatcher implements dispatcher.RemoteDispatcher by POSTing
 // the verbatim contract envelope to the contributor's RemoteEndpoint.
 //
@@ -45,6 +105,8 @@ type ForwardingDispatcher struct {
 	reg contract.Registry
 	// dispatchPath overrides DefaultDispatchPath; primarily for tests.
 	dispatchPath string
+	// maxResponse caps the upstream response body; always > 0.
+	maxResponse int64
 }
 
 // Option configures a ForwardingDispatcher.
@@ -57,12 +119,22 @@ func WithDispatchPath(path string) Option {
 	return func(f *ForwardingDispatcher) { f.dispatchPath = path }
 }
 
+// WithMaxResponseBytes overrides DefaultMaxResponseBytes. n <= 0 keeps the
+// default; there is no way to switch the cap off.
+func WithMaxResponseBytes(n int64) Option {
+	return func(f *ForwardingDispatcher) {
+		if n > 0 {
+			f.maxResponse = n
+		}
+	}
+}
+
 // NewForwardingDispatcher returns a dispatcher that reads endpoints from
 // the supplied registry. The registry is the source of truth for which
 // contributors are remote — local contributors fall through with
 // CodeNotFound so the host dispatcher's own NotFound handling kicks in.
 func NewForwardingDispatcher(reg contract.Registry, opts ...Option) *ForwardingDispatcher {
-	f := &ForwardingDispatcher{reg: reg, dispatchPath: DefaultDispatchPath}
+	f := &ForwardingDispatcher{reg: reg, dispatchPath: DefaultDispatchPath, maxResponse: DefaultMaxResponseBytes}
 	for _, o := range opts {
 		o(f)
 	}
@@ -92,14 +164,20 @@ func (f *ForwardingDispatcher) Dispatch(
 		}
 	}
 
+	// Checked per dispatch as well as at registration, so an endpoint put
+	// in the registry by some other route is held to the same rule.
+	if err := CheckTransport(endpoint.BaseURL, endpoint.AllowInsecureHTTP); err != nil {
+		return nil, contract.ResponseMeta{}, &contract.Error{Code: contract.CodeUnavailable, Message: err.Error()}
+	}
+
 	body, err := json.Marshal(req)
 	if err != nil {
 		return nil, contract.ResponseMeta{}, &contract.Error{Code: contract.CodeInternal, Message: "encode envelope: " + err.Error()}
 	}
 
-	url := strings.TrimRight(endpoint.BaseURL, "/") + f.dispatchPath
+	target := strings.TrimRight(endpoint.BaseURL, "/") + f.dispatchPath
 
-	hr, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	hr, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(body))
 	if err != nil {
 		return nil, contract.ResponseMeta{}, &contract.Error{Code: contract.CodeInternal, Message: "build request: " + err.Error()}
 	}
@@ -107,20 +185,27 @@ func (f *ForwardingDispatcher) Dispatch(
 	hr.Header.Set("Content-Type", "application/json")
 	hr.Header.Set("Accept", "application/json")
 
-	// Forward inbound auth headers so the upstream sees the end-user
-	// identity. Mirrors the legacy RemoteContributor.WithForwardedHeaders.
-	if in := dashauth.RequestFromContext(ctx); in != nil {
-		if auth := in.Header.Get("Authorization"); auth != "" {
-			hr.Header.Set("X-Forwarded-Authorization", auth)
-		}
+	// The upstream learns who the user is from the subject the dashboard
+	// already authenticated, not from the user's own credentials. Raw
+	// Cookie and Authorization are host credentials; forwarding them to
+	// every contributor would let any contributor replay them against the
+	// host. Headers named in ForwardHeaders are the explicit exception.
+	if user := dashauth.UserFromContext(ctx); user.Authenticated() {
+		hr.Header.Set(ForwardedUserHeader, user.Subject)
+	}
 
-		if cookie := in.Header.Get("Cookie"); cookie != "" {
-			hr.Header.Set("X-Forwarded-Cookie", cookie)
+	if in := dashauth.RequestFromContext(ctx); in != nil {
+		for _, name := range endpoint.ForwardHeaders {
+			if v := in.Header.Get(name); v != "" {
+				hr.Header.Set("X-Forwarded-"+http.CanonicalHeaderKey(name), v)
+			}
 		}
 	}
 	// The dashboard's own credential authenticates the dashboard-to-service
-	// hop. Upstream identity goes in X-Forwarded-Authorization above.
-	if endpoint.APIKey != "" {
+	// hop. The user's identity goes in X-Forwarded-User above. It is never
+	// sent in clear text across a network, even to an endpoint allowed to
+	// use plain http; such an upstream sees an unauthenticated dashboard.
+	if endpoint.APIKey != "" && IsSecureTransport(endpoint.BaseURL) {
 		hr.Header.Set("Authorization", "Bearer "+endpoint.APIKey)
 	}
 
@@ -135,25 +220,31 @@ func (f *ForwardingDispatcher) Dispatch(
 	}
 	defer resp.Body.Close()
 
-	rb, err := io.ReadAll(resp.Body)
+	rb, err := io.ReadAll(io.LimitReader(resp.Body, f.maxResponse+1))
 	if err != nil {
 		return nil, contract.ResponseMeta{}, &contract.Error{Code: contract.CodeInternal, Message: "read upstream response: " + err.Error()}
 	}
 
-	// Propagate any Set-Cookie headers the upstream emitted onto the host
-	// ResponseWriter so the browser sees them. The upstream's contract
-	// transport gave its loginHandler an *its own* ResponseWriter (via
-	// dashauth.WithHTTP); the cookies it set landed on the upstream's
-	// response only. Without this re-emit, auth.login succeeds upstream but
-	// the browser never receives auth_token, /principal then 401s, and the
-	// shell loops back to the login screen.
+	if int64(len(rb)) > f.maxResponse {
+		return nil, contract.ResponseMeta{}, &contract.Error{
+			Code:    contract.CodeInternal,
+			Message: fmt.Sprintf("upstream %s response exceeds %d bytes", req.Contributor, f.maxResponse),
+		}
+	}
+
+	// An upstream's Set-Cookie lands on the dashboard's own origin when
+	// re-emitted, so it only happens for endpoints that opted in. The case
+	// it exists for is an upstream serving auth.login: its cookie is set on
+	// its own response, and without the re-emit the browser never sees it.
 	//
-	// Done before we decode the envelope so cookies propagate even when
-	// upstream returns an error envelope (e.g. logout that clears the
-	// session on the way out).
-	if hostW := dashauth.ResponseWriterFromContext(ctx); hostW != nil {
-		for _, c := range resp.Cookies() {
-			http.SetCookie(hostW, c)
+	// Done before decoding the envelope so cookies propagate even when the
+	// upstream returns an error envelope (a logout that clears the session
+	// on the way out, say).
+	if endpoint.PropagateSetCookie {
+		if hostW := dashauth.ResponseWriterFromContext(ctx); hostW != nil {
+			for _, c := range resp.Cookies() {
+				http.SetCookie(hostW, c)
+			}
 		}
 	}
 

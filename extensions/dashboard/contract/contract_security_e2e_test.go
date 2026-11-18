@@ -45,6 +45,8 @@ func TestSecurityE2E_CSRFRequired(t *testing.T) {
 	}
 
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/dashboard/v1", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
@@ -78,7 +80,10 @@ func TestSecurityE2E_IdempotencyDedup(t *testing.T) {
 			t.Fatalf("marshal: %v", err)
 		}
 
-		return httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/dashboard/v1", bytes.NewReader(body))
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/dashboard/v1", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+
+		return req
 	}
 	w1 := httptest.NewRecorder()
 	h.ServeHTTP(w1, build())

@@ -40,7 +40,12 @@ func main() {
 		Name:        "video",
 		HTTPAddress: ":8080",
 		Extensions: []forge.Extension{
-			hls.NewExtension(hls.WithBaseURL("http://localhost:8080/hls")),
+			hls.NewExtension(
+				hls.WithBaseURL("http://localhost:8080/hls"),
+				// The management routes are off by default. This mounts
+				// them without auth, which is only fine on your own machine.
+				hls.WithManagementAPI(true),
+			),
 		},
 	})
 
@@ -106,7 +111,7 @@ The master playlist lists the variant with `BANDWIDTH=2800000,RESOLUTION=1280x72
 
 ## HTTP API
 
-The extension registers these routes under the base path (`/hls` by default) when the app starts:
+The extension registers these routes under the base path (`/hls` by default) when the app starts. The `/streams` management routes are mounted only with `WithManagementAPI(true)` or `WithAuth(true)`; the playlist and segment routes are always mounted:
 
 | Method and path | What it does |
 | --- | --- |
@@ -115,7 +120,7 @@ The extension registers these routes under the base path (`/hls` by default) whe
 | `GET /hls/streams/:streamID` | One stream |
 | `DELETE /hls/streams/:streamID` | Delete a stream and its stored files |
 | `POST /hls/streams/:streamID/start`, `/stop` | Mark a live stream active or stopped |
-| `POST /hls/streams/:streamID/ingest` | Store one `Segment`: `VariantID`, `SequenceNum`, `Duration` and base64 `Data` |
+| `POST /hls/streams/:streamID/ingest` | Store one `Segment`: `VariantID`, `SequenceNum`, `Duration` and base64 `Data`. `VariantID` must be one of the stream's variants (400 otherwise) and `Data` at most `MaxSegmentSize` (413 otherwise) |
 | `GET /hls/streams/:streamID/stats` | `StreamStats` |
 | `GET /hls/:streamID/master.m3u8` | Master playlist |
 | `GET /hls/:streamID/variants/:variantID/playlist.m3u8` | Media playlist |
@@ -123,7 +128,7 @@ The extension registers these routes under the base path (`/hls` by default) whe
 
 The request and response types have no JSON tags, so the keys are the Go field names (`Title`, `VariantID`, `SequenceNum`). Go's decoder ignores case, so `title` works on the way in, but responses use the capitalised names. A segment is accepted only while the stream is active.
 
-None of these routes check authentication. Put the management routes behind your own middleware or gateway before you expose the app.
+With `WithAuth(true)` the management routes answer 401 unless auth middleware that runs before them signed the caller in, meaning it set `auth_context` (the auth extension does) or a non-empty `user_id` on the forge context. HLS does no authentication of its own, so register that middleware globally or in front of these routes. Mounted with `WithManagementAPI(true)` alone they are open and the extension logs a warning at startup. The playback routes never check authentication.
 
 ## Use it from Go
 
@@ -165,7 +170,7 @@ VOD does not produce output yet. `CreateVOD` only creates the stream record, and
 
 Stream records live in memory. Metadata is written to storage, but nothing reads it back, so streams are gone after a restart even though their files remain.
 
-Many config fields are stored and never read: `RequireAuth`, `MaxViewersPerStream`, `MaxBandwidthPerStream`, `MaxSegmentSize`, `EnableCaching`, `CacheTTL`, `SegmentRetention` and the distributed `RedirectToLeader`, `RedirectToOwner` and `EnableFailover` flags. The cleanup routine trims each stream to the DVR window every `CleanupInterval`. With `WithDistributed(true)` the extension starts a coordinator on the consensus extension, but the routes do not redirect to a leader or owner.
+Many config fields are stored and never read: `MaxViewersPerStream`, `MaxBandwidthPerStream`, `EnableCaching`, `CacheTTL`, `SegmentRetention` and the distributed `RedirectToLeader`, `RedirectToOwner` and `EnableFailover` flags. The cleanup routine trims each stream to the DVR window every `CleanupInterval`. With `WithDistributed(true)` the extension starts a coordinator on the consensus extension, but the routes do not redirect to a leader or owner.
 
 ## Configuration
 
@@ -184,7 +189,9 @@ You can configure the extension in code with options, or in YAML under `extensio
 | `WithLimits(maxStreams, maxViewers, maxBandwidth)` | `MaxStreams` is enforced on create | `100`, `10000`, `104857600` |
 | `WithCleanup(retention, interval)` | Turns on cleanup and sets its interval | on, `24h`, `1h` |
 | `WithDistributed(bool)`, `WithNodeID(string)`, `WithClusterID(string)`, `WithFailover(bool)` | Cluster mode | off |
-| `WithAuth(bool)`, `WithCaching(bool, ttl)` | Stored only, see [Status](#status) | off, on and `5m` |
+| `WithManagementAPI(bool)` | Mount the `/streams` management routes | off |
+| `WithAuth(bool)` | Mount the management routes and require a signed-in caller on them | off |
+| `WithCaching(bool, ttl)` | Stored only, see [Status](#status) | on and `5m` |
 | `WithRequireConfig(bool)`, `WithConfig(hls.Config)` | Require YAML, or replace the whole config | |
 
 The YAML keys are the snake_case names from the struct tags, such as `base_url`, `storage_bucket`, `target_duration` and `dvr_window_size`. The file overrides `DefaultConfig()`, your options override the file, and anything you leave out of the YAML keeps its default.
