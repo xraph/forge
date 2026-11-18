@@ -74,15 +74,14 @@ type Node struct {
 	lastHeartbeatMux sync.RWMutex
 
 	// Synchronization
-	mu             sync.RWMutex
-	snapshotCh     chan SnapshotMsg
-	configChangeCh chan ConfigChangeMsg
+	mu         sync.RWMutex
+	snapshotCh chan SnapshotMsg
 
 	// Apply pipeline. applyNotify wakes the single applier goroutine when
 	// commitIndex moves; applyWaiters holds the Apply calls waiting for their
 	// entry, keyed by log index. Both are guarded by mu.
 	applyNotify  chan struct{}
-	applyWaiters map[uint64]applyWaiter
+	applyWaiters map[waiterKey]chan error
 
 	// applyMu serialises everything that changes the state machine: applying
 	// entries, taking a snapshot of it and restoring one. Lock order is
@@ -95,6 +94,16 @@ type Node struct {
 	// lastLeaderContact is when a valid leader last reached this node.
 	// Guarded by mu.
 	lastLeaderContact time.Time
+
+	// configs is the configuration history: the configuration in force at
+	// the snapshot (or the bootstrap one) followed by every configuration
+	// entry in the log. The last one is current. Guarded by mu.
+	configs []configEntry
+	// changing is set while AddNode or RemoveNode runs. Guarded by mu.
+	changing bool
+	// transferTarget is the node leadership is being handed to. Client
+	// requests are refused while it is set. Guarded by mu.
+	transferTarget string
 
 	// RPC correlation. Every outgoing request gets a fresh ID from requestSeq,
 	// which the peer echoes in its response, so a late response can never be
@@ -132,12 +141,7 @@ type snapshotReceive struct {
 	index      uint64
 	term       uint64
 	data       []byte
-}
-
-// applyWaiter is an Apply call waiting for its entry to be applied.
-type applyWaiter struct {
-	term uint64
-	ch   chan error
+	config     *internal.ClusterConfiguration
 }
 
 // ApplyMsg represents a message to apply to the state machine.
@@ -154,25 +158,6 @@ type SnapshotMsg struct {
 	Term     uint64
 	ResultCh chan error
 }
-
-// ConfigChangeMsg represents a configuration change message.
-type ConfigChangeMsg struct {
-	Type     ConfigChangeType
-	NodeID   string
-	Address  string
-	Port     int
-	ResultCh chan error
-}
-
-// ConfigChangeType represents the type of configuration change.
-type ConfigChangeType int
-
-const (
-	// ConfigChangeAdd adds a node to the cluster.
-	ConfigChangeAdd ConfigChangeType = iota
-	// ConfigChangeRemove removes a node from the cluster.
-	ConfigChangeRemove
-)
 
 // NewNode creates a new Raft node.
 func NewNode(
@@ -230,9 +215,8 @@ func NewNode(
 		storage:         storage,
 		peers:           make(map[string]*PeerState),
 		snapshotCh:      make(chan SnapshotMsg, 10),
-		configChangeCh:  make(chan ConfigChangeMsg, 10),
 		applyNotify:     make(chan struct{}, 1),
-		applyWaiters:    make(map[uint64]applyWaiter),
+		applyWaiters:    make(map[waiterKey]chan error),
 		pendingRequests: make(map[pendingKey]chan any),
 	}
 
@@ -255,6 +239,8 @@ func NewNode(
 	if err := n.restoreSnapshot(); err != nil {
 		return nil, fmt.Errorf("failed to restore snapshot: %w", err)
 	}
+
+	n.restoreConfigs()
 
 	return n, nil
 }
@@ -487,7 +473,7 @@ func (n *Node) reconcileEntriesLocked(entries []internal.LogEntry) error {
 		}
 
 		if entry.Index > lastIndex {
-			return n.log.AppendBatch(entries[i:])
+			return n.appendFromLeaderLocked(entries[i:])
 		}
 
 		term, _ := n.log.Term(entry.Index)
@@ -504,8 +490,27 @@ func (n *Node) reconcileEntriesLocked(entries []internal.LogEntry) error {
 			return fmt.Errorf("truncate conflicting entries from %d: %w", entry.Index, err)
 		}
 
-		return n.log.AppendBatch(entries[i:])
+		// Configurations take effect on append, so truncating their entries
+		// returns to the configuration before them. Callers still waiting on
+		// the removed entries, from when this node led, learn now that they
+		// were dropped instead of waiting for their deadline.
+		n.truncateConfigsLocked(entry.Index - 1)
+		n.failTruncatedWaitersLocked(entry.Index - 1)
+
+		return n.appendFromLeaderLocked(entries[i:])
 	}
+
+	return nil
+}
+
+// appendFromLeaderLocked appends entries and puts any configuration among
+// them into effect.
+func (n *Node) appendFromLeaderLocked(entries []internal.LogEntry) error {
+	if err := n.log.AppendBatch(entries); err != nil {
+		return err
+	}
+
+	n.applyAppendedConfigsLocked(entries)
 
 	return nil
 }
@@ -562,6 +567,7 @@ func (n *Node) handleInstallSnapshot(req internal.InstallSnapshotRequest) intern
 			leaderTerm: req.Term,
 			index:      req.LastIncludedIndex,
 			term:       req.LastIncludedTerm,
+			config:     req.Configuration,
 		}
 	}
 
@@ -594,7 +600,7 @@ func (n *Node) handleInstallSnapshot(req internal.InstallSnapshotRequest) intern
 	n.snapshotRecv = nil
 	n.mu.Unlock()
 
-	err := n.installSnapshot(recv.index, recv.term, recv.data)
+	err := n.installSnapshot(recv.index, recv.term, recv.data, recv.config)
 	if err != nil {
 		n.logger.Error("failed to install snapshot from leader",
 			forge.F("node_id", n.id),
@@ -625,7 +631,7 @@ func (n *Node) handleInstallSnapshot(req internal.InstallSnapshotRequest) intern
 // log up to index, persists it, and drops the log entries it covers. Entries
 // after index are kept when the log agrees with the snapshot at index;
 // otherwise the whole log is discarded (section 7).
-func (n *Node) installSnapshot(index, term uint64, data []byte) error {
+func (n *Node) installSnapshot(index, term uint64, data []byte, config *internal.ClusterConfiguration) error {
 	n.applyMu.Lock()
 	defer n.applyMu.Unlock()
 
@@ -652,21 +658,27 @@ func (n *Node) installSnapshot(index, term uint64, data []byte) error {
 	n.lastApplied = index
 	n.commitIndex = max(n.commitIndex, index)
 
-	for waitIndex, waiter := range n.applyWaiters {
-		if waitIndex <= index {
-			waiter.ch <- errors.New("entry was superseded by a snapshot from the leader; its result is unknown")
+	n.failWaitersLocked(func(k waiterKey) bool { return k.index <= index }, errSupersededBySnapshot)
 
-			delete(n.applyWaiters, waitIndex)
-		}
+	// A leader always sends its configuration; fall back to what this node
+	// knew at that index for one that did not.
+	cfg := n.configAtLocked(index).Clone()
+	if config != nil {
+		cfg = config.Clone()
 	}
 
-	if err := n.saveSnapshot(snapshot); err != nil {
+	if err := n.saveSnapshot(snapshot, cfg); err != nil {
 		return fmt.Errorf("failed to persist snapshot %d: %w", index, err)
 	}
 
 	if err := n.log.InstallSnapshot(index, term); err != nil {
 		return fmt.Errorf("failed to drop log entries covered by snapshot %d: %w", index, err)
 	}
+
+	n.rebuildConfigsLocked(configEntry{index: index, cfg: cfg})
+
+	// Entries after the snapshot that disagreed with it were discarded.
+	n.failTruncatedWaitersLocked(n.log.LastIndex())
 
 	n.signalApply()
 
@@ -683,12 +695,30 @@ func (n *Node) Snapshot() error {
 // applied to the local state machine. It returns the state machine's error for
 // that entry, or an error when leadership is lost and the entry is replaced.
 func (n *Node) Apply(ctx context.Context, entry internal.LogEntry) error {
+	if entry.Type == internal.EntryConfig {
+		return errors.New("raft: configuration entries are written by AddNode and RemoveNode")
+	}
+
+	return n.appendAndWait(ctx, entry, false, nil)
+}
+
+// appendAndWait appends an entry on the leader and waits until it is
+// committed and applied. onAppend runs under mu right after the append.
+// Client entries are refused during a leadership transfer; membership
+// changes have their own guard and pass skipTransferCheck.
+func (n *Node) appendAndWait(ctx context.Context, entry internal.LogEntry, skipTransferCheck bool, onAppend func(index uint64)) error {
 	n.mu.Lock()
 
 	if n.GetRole() != internal.RoleLeader {
 		n.mu.Unlock()
 
 		return internal.NewNotLeaderError(n.id, n.GetLeader())
+	}
+
+	if !skipTransferCheck && n.transferBlocksLocked() {
+		n.mu.Unlock()
+
+		return ErrLeadershipTransferInProgress
 	}
 
 	entry.Term = n.currentTerm
@@ -701,8 +731,11 @@ func (n *Node) Apply(ctx context.Context, entry internal.LogEntry) error {
 		return fmt.Errorf("failed to append log entry: %w", err)
 	}
 
-	resultCh := make(chan error, 1)
-	n.applyWaiters[entry.Index] = applyWaiter{term: entry.Term, ch: resultCh}
+	if onAppend != nil {
+		onAppend(entry.Index)
+	}
+
+	resultCh := n.addWaiterLocked(entry.Index, entry.Term)
 
 	// A single-node cluster is its own majority.
 	n.advanceCommitIndex()
@@ -727,9 +760,7 @@ func (n *Node) Apply(ctx context.Context, entry internal.LogEntry) error {
 	}
 
 	n.mu.Lock()
-	if w, ok := n.applyWaiters[entry.Index]; ok && w.ch == resultCh {
-		delete(n.applyWaiters, entry.Index)
-	}
+	n.removeWaiterLocked(entry.Index, entry.Term, resultCh)
 	n.mu.Unlock()
 
 	return err
@@ -1007,29 +1038,13 @@ func (n *Node) deliverResponse(from string, requestID uint64, response any) {
 	}
 }
 
-// AddPeer adds a peer to the Raft node.
+// AddPeer adds a voter to the bootstrap configuration, the membership used
+// until the log or a snapshot holds a configuration entry. Call it before
+// Start for every other initial member. Later changes go through AddNode and
+// RemoveNode; AddPeer is ignored once a configuration has been recorded, and
+// on a node configured to join an existing cluster.
 func (n *Node) AddPeer(peerID string) {
-	n.peersLock.Lock()
-	defer n.peersLock.Unlock()
-
-	if _, exists := n.peers[peerID]; !exists {
-		n.peers[peerID] = &PeerState{
-			ID:            peerID,
-			NextIndex:     1,
-			MatchIndex:    0,
-			LastContact:   time.Now(),
-			ReplicationMu: sync.Mutex{},
-		}
-
-		// Initialize nextIndex and matchIndex for the new peer
-		n.nextIndex[peerID] = 1
-		n.matchIndex[peerID] = 0
-
-		n.logger.Info("added peer to raft node",
-			forge.F("node_id", n.id),
-			forge.F("peer_id", peerID),
-		)
-	}
+	n.addBootstrapPeer(peerID, "", 0)
 }
 
 // PeerStatus is what this node knows about one peer.
@@ -1059,10 +1074,10 @@ func (n *Node) Peers() []PeerStatus {
 	return out
 }
 
-// HasQuorum reports whether this node is in touch with a working majority.
-// A leader needs responses from a majority (itself included) within the
-// maximum election timeout; a follower needs to have heard from a leader
-// within that time.
+// HasQuorum reports whether this node is in touch with a working majority
+// of the voting members. A leader needs responses from a majority (itself
+// included when it votes) within the maximum election timeout; a follower
+// needs to have heard from a leader within that time.
 func (n *Node) HasQuorum() bool {
 	window := n.config.ElectionTimeoutMax
 	now := time.Now()
@@ -1074,16 +1089,31 @@ func (n *Node) HasQuorum() bool {
 		return n.GetLeader() != "" && now.Sub(n.lastLeaderContact) <= window
 	}
 
+	others, selfVotes := n.votersLocked()
+
+	reachable := 0
+	if selfVotes {
+		reachable++
+	}
+
 	n.peersLock.RLock()
 	defer n.peersLock.RUnlock()
 
-	reachable := 1
-
-	for _, p := range n.peers {
-		if now.Sub(p.LastContact) <= window {
+	for _, id := range others {
+		if p, ok := n.peers[id]; ok && now.Sub(p.LastContact) <= window {
 			reachable++
 		}
 	}
 
-	return reachable >= (len(n.peers)+1)/2+1
+	return reachable >= quorumSize(len(others), selfVotes)
+}
+
+// quorumSize is the majority of the voting members.
+func quorumSize(otherVoters int, selfVotes bool) int {
+	voters := otherVoters
+	if selfVotes {
+		voters++
+	}
+
+	return voters/2 + 1
 }

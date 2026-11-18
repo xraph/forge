@@ -1,6 +1,6 @@
 ---
 title: Consensus
-description: Raft consensus building blocks for Go, plus a Forge extension that doesn't wire them together yet
+description: Raft consensus building blocks for Go, plus a Forge extension that runs a node from config
 ---
 
 import { Cards, Card } from 'fumadocs-ui/components/card';
@@ -8,23 +8,26 @@ import { Callout } from 'fumadocs-ui/components/callout';
 
 ## Overview
 
-`github.com/xraph/forge/extensions/consensus` holds a Raft implementation in Go with leader election, pre-vote, log replication and snapshots, plus the pieces a node is built from: log storage on BadgerDB, BoltDB or memory, gRPC, TCP, HTTP and in-process transports, peer discovery through static lists, DNS, Consul, etcd or Kubernetes, and in-memory and persistent state machines.
+`github.com/xraph/forge/extensions/consensus` holds a Raft implementation in Go with leader election, log replication, snapshots, membership changes and leadership transfer, plus the pieces a node is built from: log storage on BadgerDB, BoltDB or memory (optionally encrypted at rest), TCP, HTTP, gRPC and in-process transports, peer discovery through static lists, DNS, Consul, etcd or Kubernetes, and in-memory and persistent state machines.
 
-A Forge extension sits on top of those packages, but it doesn't use them yet. Read the status below before you pick it for a distributed system.
+A Forge extension sits on top. It builds storage, a transport, a state machine and a Raft node from your config, so each app you start with it is one node of the cluster. You can also assemble nodes from the packages yourself, as the quick start does.
 
 <Callout type="warn">
-The extension's `Start` only logs each component it would initialise. Storage, transport, discovery, the cluster manager, the state machine and the Raft node are never created, so nothing listens on the bind port and the node stays a follower forever. `Apply` always returns a not-leader error, `Read` and `Snapshot` panic on the nil state machine, and the auto-snapshot loop (on by default) panics the same way after `raft.snapshot_interval`, which takes your process down. The admin API, `TransferLeadership` and `StepDown` aren't implemented. If you need Raft today, build nodes from the packages yourself, as the quick start does.
+The module hasn't run a production cluster yet. Reads come from the local state machine and aren't linearizable, the extension only takes its first members from the static `peers` list (DNS, Consul, etcd and Kubernetes discovery aren't wired into it), and there's no pre-vote round. Read the status below before you pick it for a distributed system.
 </Callout>
 
 ## Status
 
 | Piece | State |
 |---|---|
-| Leader election and log replication in `raft` | Works on the in-process transport. Three nodes elect a leader, and a proposed entry commits on a majority |
-| Applying entries on followers | Followers advance their commit index but don't apply committed entries to their state machine, so reads from a follower stay empty. Read from the leader |
-| `consensus.NewExtension` | Validates config and registers services, but builds none of the components. See [the Forge extension](#the-forge-extension) |
-| Network transports, BadgerDB and BoltDB storage, discovery backends | The code is there and compiles, but nothing in the repository runs a networked cluster on them yet. The BadgerDB and BoltDB stores and the Consul, etcd and Kubernetes discovery don't implement the module's own interfaces, so `raft.NewNode` won't take the stores without an adapter |
-| Cluster tests | `testing/` runs in-process clusters. `TestLogReplication` is skipped under `-short`, which is how CI runs it |
+| Leader election, log replication and applying entries in `raft` | Three node clusters elect a leader and replicate commands to every state machine over the in-process, TCP, HTTP and gRPC transports |
+| Durability | The log, term and vote are reloaded from storage on restart. A node only acknowledges entries and votes it has persisted |
+| Snapshots | Nodes compact their log into snapshots, and a follower that falls behind the snapshot catches up through `InstallSnapshot`, sent in chunks |
+| `consensus.NewExtension` | Builds storage, transport, state machine and Raft node from config and replicates over TCP, HTTP or gRPC, with TLS and mTLS. See [the Forge extension](#the-forge-extension) |
+| Membership and leadership transfer | Servers are added (as a learner first, then promoted) and removed one at a time through the log, the leader included. `TransferLeadership` hands over to a chosen voter and gives up after an election timeout. Membership survives restarts and snapshots |
+| Encryption at rest | With `security.enable_encryption`, every value a node stores is sealed with AES-256-GCM. See [encryption at rest](/docs/extensions/consensus/features#encryption-at-rest) |
+| Not implemented | Linearizable reads, a pre-vote round, and dynamic discovery in the extension |
+| Cluster tests | `testing/` runs in-process clusters, and the `raft` and root packages run TCP, HTTP and gRPC clusters. `TestLogReplication` is skipped under `-short`, which is how CI runs it |
 
 ## Quick start
 
@@ -156,7 +159,9 @@ node-2 commit index: 2
 node-3 commit index: 2
 ```
 
-The leader varies from run to run. Entry 1 is the no-op every new leader writes, and entry 2 is your `set`. Calling `Propose` on a follower returns a not-leader error that names the current leader, which you can check with `consensus.IsNotLeaderError`.
+The leader varies from run to run. Entry 1 is the no-op every new leader writes, and entry 2 is your `set`. Calling `Propose` on a follower returns a not-leader error that names the current leader, which you can check with `consensus.IsNotLeaderError`. If the leader loses its term before your entry commits, you get `raft.ErrProposalDropped` instead, and you can retry on the new leader.
+
+To run the same thing across machines, swap the in-process transport for `transport.NewTCPTransport`, `NewHTTPTransport` or `NewGRPCTransport`, use `storage.NewBadgerStorage` or `NewBoltDBStorage` for an on-disk log, and register the other members with `AddPeerAddress(id, address, port)`. Or let the extension do that wiring for you.
 
 ## The Forge extension
 
@@ -167,7 +172,7 @@ app := forge.NewApp(forge.AppConfig{
 		consensus.NewExtension(
 			consensus.WithNodeID("node-1"),
 			consensus.WithClusterID("orders"),
-			consensus.WithBindAddress("0.0.0.0", 7000),
+			consensus.WithBindAddress("10.0.0.1", 7000),
 			consensus.WithPeers([]consensus.PeerConfig{
 				{ID: "node-2", Address: "10.0.0.2", Port: 7000},
 				{ID: "node-3", Address: "10.0.0.3", Port: 7000},
@@ -177,26 +182,34 @@ app := forge.NewApp(forge.AppConfig{
 })
 ```
 
-That compiles and starts. If you add it anyway, turn the auto-snapshot loop off in your config file so it can't crash the process:
+Start that app on every server, each with its own `node_id`, and they elect a leader between them. `Start` builds:
 
-```yaml
-extensions:
-  consensus:
-    advanced:
-      enable_auto_snapshot: false
-```
+- storage under `storage.path`: `badger` by default, or `boltdb` or `memory`, encrypted when `security.enable_encryption` is on
+- the transport on `bind_addr:bind_port`: `tcp` by default, or `http` or `grpc`, with TLS when `security.enable_tls` is on, and client certificates checked against node IDs when `enable_mtls` is on
+- a memory state machine
+- a Raft node whose first members are the `peers` list
 
-Here's what each call does on a started extension today:
+`bind_addr` defaults to `127.0.0.1`, so set it to an address the other servers can reach. It's also the address other members record for this node.
+
+Settings it can't honour stop the service when it's created, with an error that wraps `ErrInvalidConfig`: storage `pebble` or `postgres`, and any discovery type other than `static`.
+
+Here's what each call does on a started extension:
 
 | Call | Result |
 |---|---|
-| `Apply` | Always a not-leader error (`IsNotLeaderError` is true) |
-| `Read`, `Snapshot` | Panic, because the state machine is nil |
-| `HealthCheck` and the extension's `Health` | `storage not initialized`. The health loop logs that warning every `health.check_interval` |
-| `IsLeader`, `GetLeader`, `GetRole` | `false`, `""`, `follower` |
-| `AddNode`, `RemoveNode`, `TransferLeadership`, `StepDown` | A not-leader error, because the node is never leader. `TransferLeadership` and `StepDown` aren't implemented past that check |
-| `GetRaftNode`, `GetStateMachine`, `GetStorage`, `GetTransport`, `GetDiscovery`, `GetClusterManager` | `nil` |
-| `GetStats`, `GetClusterInfo` | Zero counts and `HasQuorum: false` |
+| `Apply` | On the leader, appends the command and returns once it is committed and applied. Elsewhere a not-leader error naming the leader. `raft.ErrProposalDropped` when a leadership change dropped the entry, and `raft.ErrLeadershipTransferInProgress` while leadership is being handed over |
+| `Read` | Queries this node's state machine. On a follower it can lag the leader |
+| `Snapshot` | Snapshots the state machine and compacts the log |
+| `IsLeader`, `GetLeader`, `GetRole`, `GetTerm` | The Raft node's current state |
+| `AddNode` | On the leader, adds a running server that was started with `join: true`. It joins as a learner and becomes a voter once it has caught up. Only one change runs at a time (`raft.ErrConfigChangeInProgress`) |
+| `RemoveNode` | On the leader, removes a server. Removing the leader is allowed: it steps down once the change commits |
+| `TransferLeadership` | On the leader, hands leadership to a voter. Writes are refused while it runs, and it fails with `raft.ErrLeadershipTransferFailed` if the target hasn't taken over within an election timeout |
+| `StepDown` | The leader returns to follower and an election picks the next one |
+| `HealthCheck` and the extension's `Health` | `nil` while the node has storage, a transport and quorum. `no quorum` otherwise |
+| `GetStats`, `GetClusterInfo` | Live numbers from the Raft node, and the members of the current configuration |
+| `ReencryptStorage` | Rewrites stored values under the active encryption key after a key rotation |
+
+The admin routes are off by default. With `admin_api.enabled` they're registered on your app's router under `admin_api.path_prefix`, and since they can write to the replicated log, set `admin_api.enable_auth` and `api_key` whenever anyone else can reach that router.
 
 ## What it registers
 
@@ -208,7 +221,7 @@ Here's what each call does on a started extension today:
 | State machine | `consensus:statemachine` | `StateMachine` |
 | Leadership checker | `consensus:leadership` | `*LeadershipChecker` |
 
-The cluster manager, Raft node and state machine entries hold `nil` interfaces, so resolving them returns an error.
+The Raft node and state machine are created by `Start`. The cluster manager is backed by the Raft configuration: its `GetNodes` lists the current members, learners included, and its `AddNode` and `RemoveNode` go through the log like the service's. All four entries resolve through `*Service`, so they hit the problem below; take them from the service with `GetRaftNode()`, `GetStateMachine()` and `GetClusterManager()`.
 
 <Callout type="warn">
 The first time anything resolves `*consensus.Service` from the container after the app has started, including through `*LeadershipChecker`, it fails with `consensus service already started`. The container tries to start the service again and `Start` isn't idempotent. Take the service from the extension instead.
@@ -221,7 +234,7 @@ if err != nil {
 }
 
 svc := ext.(*consensus.Extension).Service()
-fmt.Println(svc.GetRole()) // follower
+fmt.Println(svc.GetRole(), svc.GetLeader())
 ```
 
 ## Dependencies
@@ -232,7 +245,7 @@ With `events.enabled` on (the default), the extension adds `events` to its depen
 
 <Cards>
 <Card title="Features" href="/docs/extensions/consensus/features">
-The packages you build a node from, custom state machines, middleware, and what isn't implemented.
+The packages you build a node from, membership changes, leadership transfer, encryption at rest, the transports, and what isn't implemented.
 </Card>
 <Card title="Configuration" href="/docs/extensions/consensus/configuration">
 Every config key, its default, the validation rules, and which keys the extension reads.

@@ -19,6 +19,7 @@ import (
 
 	"github.com/xraph/forge"
 	"github.com/xraph/forge/extensions/consensus/internal"
+	"github.com/xraph/forge/extensions/consensus/raft"
 )
 
 func freePorts(t *testing.T, n int) []int {
@@ -128,14 +129,27 @@ func waitForServiceLeader(t *testing.T, services []*Service) *Service {
 func replicateAndRead(t *testing.T, services []*Service) {
 	t.Helper()
 
-	leader := waitForServiceLeader(t, services)
-
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	cmd := Command{Type: "set", Payload: map[string]any{"key": "greeting", "value": "hello"}}
-	if err := leader.Apply(ctx, cmd); err != nil {
-		t.Fatalf("apply on leader %s: %v", leader.config.NodeID, err)
+
+	// A leader elected a moment ago can lose its term before the entry
+	// commits. Apply then fails at once with ErrProposalDropped or a
+	// not-leader error, which a client retries on the new leader.
+	var leader *Service
+
+	for attempt := 0; ; attempt++ {
+		leader = waitForServiceLeader(t, services)
+
+		err := leader.Apply(ctx, cmd)
+		if err == nil {
+			break
+		}
+
+		if attempt == 4 || (!errors.Is(err, raft.ErrProposalDropped) && !IsNotLeaderError(err)) {
+			t.Fatalf("apply on leader %s: %v", leader.config.NodeID, err)
+		}
 	}
 
 	for _, s := range services {
@@ -168,7 +182,7 @@ func replicateAndRead(t *testing.T, services []*Service) {
 // Three services started from configuration elect a leader and replicate a
 // command over each network transport.
 func TestServiceClusterReplicates(t *testing.T) {
-	for _, kind := range []string{"tcp", "http"} {
+	for _, kind := range []string{"tcp", "http", "grpc"} {
 		t.Run(kind, func(t *testing.T) {
 			replicateAndRead(t, startServices(t, clusterConfigs(t, kind, 3)))
 		})
@@ -181,7 +195,7 @@ func TestServiceClusterReplicates(t *testing.T) {
 func TestServiceClusterReplicatesOverMTLS(t *testing.T) {
 	pki := newServicePKI(t)
 
-	for _, kind := range []string{"tcp", "http"} {
+	for _, kind := range []string{"tcp", "http", "grpc"} {
 		t.Run(kind, func(t *testing.T) {
 			cfgs := clusterConfigs(t, kind, 3)
 
@@ -239,7 +253,7 @@ func TestServiceMTLSRejectsMismatchedCertificate(t *testing.T) {
 // Settings the service cannot honour fail with a clear error.
 func TestServiceRejectsUnsupportedSettings(t *testing.T) {
 	cases := map[string]func(*internal.Config){
-		"grpc transport":   func(c *internal.Config) { c.Transport.Type = "grpc" },
+		"quic transport":   func(c *internal.Config) { c.Transport.Type = "quic" },
 		"encryption":       func(c *internal.Config) { c.Security.EnableEncryption = true },
 		"dns discovery":    func(c *internal.Config) { c.Discovery.Type = "dns" },
 		"postgres storage": func(c *internal.Config) { c.Storage.Type = "postgres" },
@@ -256,16 +270,6 @@ func TestServiceRejectsUnsupportedSettings(t *testing.T) {
 		if _, err := NewConsensusService(cfg, forge.NewNoopLogger(), nil); !errors.Is(err, internal.ErrInvalidConfig) {
 			t.Fatalf("%s: NewConsensusService returned %v, want ErrInvalidConfig", name, err)
 		}
-	}
-}
-
-// Membership changes are refused instead of being half applied.
-func TestServiceRefusesMembershipChanges(t *testing.T) {
-	cfg := clusterConfigs(t, "tcp", 1)[0]
-	s := startServices(t, []internal.Config{cfg})[0]
-
-	if err := s.AddNode(context.Background(), "n9", "127.0.0.1", 1); !errors.Is(err, ErrMembershipChangeUnsupported) {
-		t.Fatalf("AddNode returned %v", err)
 	}
 }
 

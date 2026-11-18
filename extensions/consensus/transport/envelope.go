@@ -51,6 +51,8 @@ type wireMessage struct {
 	RequestVoteResponse     *internal.RequestVoteResponse     `json:"request_vote_response,omitempty"`
 	InstallSnapshot         *internal.InstallSnapshotRequest  `json:"install_snapshot,omitempty"`
 	InstallSnapshotResponse *internal.InstallSnapshotResponse `json:"install_snapshot_response,omitempty"`
+	TimeoutNow              *internal.TimeoutNowRequest       `json:"timeout_now,omitempty"`
+	TimeoutNowResponse      *internal.TimeoutNowResponse      `json:"timeout_now_response,omitempty"`
 }
 
 // toMessage reports an error unless exactly the payload matching Type is set.
@@ -111,6 +113,10 @@ func encodeMessage(message any) ([]byte, internal.Message, error) {
 		w.InstallSnapshot, err = asPointer[internal.InstallSnapshotRequest](msg.Payload)
 	case internal.MessageTypeInstallSnapshotResponse:
 		w.InstallSnapshotResponse, err = asPointer[internal.InstallSnapshotResponse](msg.Payload)
+	case internal.MessageTypeTimeoutNow:
+		w.TimeoutNow, err = asPointer[internal.TimeoutNowRequest](msg.Payload)
+	case internal.MessageTypeTimeoutNowResponse:
+		w.TimeoutNowResponse, err = asPointer[internal.TimeoutNowResponse](msg.Payload)
 	case internal.MessageTypeHeartbeat:
 		if msg.Payload != nil {
 			err = fmt.Errorf("heartbeat carries a %T payload", msg.Payload)
@@ -158,6 +164,7 @@ func decodeMessage(data []byte) (internal.Message, error) {
 		w.AppendEntries != nil, w.AppendEntriesResponse != nil,
 		w.RequestVote != nil, w.RequestVoteResponse != nil,
 		w.InstallSnapshot != nil, w.InstallSnapshotResponse != nil,
+		w.TimeoutNow != nil, w.TimeoutNowResponse != nil,
 	} {
 		if present {
 			set++
@@ -177,6 +184,10 @@ func decodeMessage(data []byte) (internal.Message, error) {
 		msg.Payload, set = w.InstallSnapshot, set-boolToInt(w.InstallSnapshot != nil)
 	case internal.MessageTypeInstallSnapshotResponse:
 		msg.Payload, set = w.InstallSnapshotResponse, set-boolToInt(w.InstallSnapshotResponse != nil)
+	case internal.MessageTypeTimeoutNow:
+		msg.Payload, set = w.TimeoutNow, set-boolToInt(w.TimeoutNow != nil)
+	case internal.MessageTypeTimeoutNowResponse:
+		msg.Payload, set = w.TimeoutNowResponse, set-boolToInt(w.TimeoutNowResponse != nil)
 	case internal.MessageTypeHeartbeat:
 		if set != 0 {
 			return internal.Message{}, errors.New("heartbeat message carries a payload")
@@ -211,6 +222,10 @@ func isNilPayload(p any) bool {
 	case *internal.InstallSnapshotRequest:
 		return v == nil
 	case *internal.InstallSnapshotResponse:
+		return v == nil
+	case *internal.TimeoutNowRequest:
+		return v == nil
+	case *internal.TimeoutNowResponse:
 		return v == nil
 	default:
 		return false

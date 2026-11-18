@@ -18,6 +18,10 @@ type Config struct {
 	// Peers - initial cluster members
 	Peers []PeerConfig `json:"peers" yaml:"peers"`
 
+	// Join starts this node as a server waiting to be added to an existing
+	// cluster with AddNode. Peers then only tell it where the cluster is.
+	Join bool `json:"join" yaml:"join"`
+
 	// Raft configuration
 	Raft RaftConfig `json:"raft" yaml:"raft"`
 
@@ -84,7 +88,7 @@ type RaftConfig struct {
 
 // TransportConfig contains transport layer configuration.
 type TransportConfig struct {
-	Type               string        `default:"tcp"     json:"type"                yaml:"type"`             // tcp, http (grpc is not implemented)
+	Type               string        `default:"tcp"     json:"type"                yaml:"type"`             // tcp, http, grpc
 	MaxMessageSize     int           `default:"4194304" json:"max_message_size"    yaml:"max_message_size"` // 4MB
 	Timeout            time.Duration `default:"10s"     json:"timeout"             yaml:"timeout"`
 	KeepAlive          bool          `default:"true"    json:"keep_alive"          yaml:"keep_alive"`
@@ -200,6 +204,17 @@ type SecurityConfig struct {
 	SkipVerify       bool   `default:"false"       json:"skip_verify"       yaml:"skip_verify"`
 	EnableEncryption bool   `default:"false"       json:"enable_encryption" yaml:"enable_encryption"`
 	EncryptionKey    string `json:"encryption_key" yaml:"encryption_key"`
+
+	// Encryption at rest keys. A single key (ID 1) comes from one of
+	// EncryptionKeyFile, EncryptionKeyEnv or, only with
+	// AllowInlineEncryptionKey, EncryptionKey. EncryptionKeys lists several
+	// keys for rotation; see EncryptionKeyConfig.
+	EncryptionKeyFile          string                `json:"encryption_key_file"          yaml:"encryption_key_file"`
+	EncryptionKeyEnv           string                `json:"encryption_key_env"           yaml:"encryption_key_env"`
+	EncryptionKeys             []EncryptionKeyConfig `json:"encryption_keys"              yaml:"encryption_keys"`
+	EncryptionActiveKeyID      uint32                `json:"encryption_active_key_id"     yaml:"encryption_active_key_id"`
+	AllowInlineEncryptionKey   bool                  `json:"allow_inline_encryption_key"  yaml:"allow_inline_encryption_key"`
+	EncryptionMigratePlaintext bool                  `json:"encryption_migrate_plaintext" yaml:"encryption_migrate_plaintext"`
 }
 
 // ResilienceConfig contains resilience configuration.
@@ -415,9 +430,7 @@ func (c *Config) Validate() error {
 
 	// Validate transport config
 	switch c.Transport.Type {
-	case "tcp", "http":
-	case "grpc":
-		return fmt.Errorf("%w: transport type grpc is not implemented, use tcp or http", ErrInvalidConfig)
+	case "tcp", "http", "grpc":
 	default:
 		return fmt.Errorf("%w: invalid transport type: %s", ErrInvalidConfig, c.Transport.Type)
 	}
@@ -461,10 +474,8 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("%w: security.ca_file is required when mTLS is enabled", ErrInvalidConfig)
 	}
 
-	// Nothing encrypts consensus data at rest, so accepting the option would
-	// promise protection that does not exist.
-	if c.Security.EnableEncryption {
-		return fmt.Errorf("%w: security.enable_encryption is not implemented", ErrInvalidConfig)
+	if err := c.Security.validateEncryption(); err != nil {
+		return err
 	}
 
 	if c.AdminAPI.EnableAuth && c.AdminAPI.APIKey == "" {
@@ -503,6 +514,14 @@ func WithBindAddress(addr string, port int) ConfigOption {
 func WithPeers(peers []PeerConfig) ConfigOption {
 	return func(c *Config) {
 		c.Peers = peers
+	}
+}
+
+// WithJoin starts the node as a server that waits to be added to an
+// existing cluster instead of bootstrapping one.
+func WithJoin(join bool) ConfigOption {
+	return func(c *Config) {
+		c.Join = join
 	}
 }
 
