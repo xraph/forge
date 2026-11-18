@@ -114,7 +114,7 @@ curl -i http://localhost:8080/me
 curl -H "X-API-Key: alice-key" http://localhost:8080/me
 # {"provider":"api-key","roles":["admin"],"subject":"alice"}
 curl -i -X DELETE -H "X-API-Key: bob-key" http://localhost:8080/cache
-# 403 authorization failed: requires any of roles admin
+# 403 Forbidden
 curl -X DELETE -H "X-API-Key: alice-key" http://localhost:8080/cache
 # {"status":"cleared"}
 ```
@@ -211,7 +211,7 @@ The registry turns provider names into `forge.Middleware`. You attach it with `f
 | `MiddlewareWithScopes(name, scopes...)` | One provider plus required scopes |
 | `MiddlewareWithRequirement(req)` | Authenticates with `req.Providers` (`Mode: "and"` for all-of), then calls the authorizer |
 
-A failed sign-in gets a plain-text `401 Unauthorized`. A failed check gets `403` with the authorizer's error text. After a successful sign-in, the registry sets `ProviderName` on the auth context to the name the provider was registered under.
+A failed sign-in gets a plain-text `401 Unauthorized`. A failed check gets a plain-text `403 Forbidden`; the authorizer's reason goes to the server log, not the client. After a successful sign-in, the registry copies the auth context the provider returned and sets `ProviderName` on the copy to the name the provider was registered under, so a provider can safely return a shared or cached context. The result is in the forge context (`auth.GetAuthContext`) and the request context (`auth.FromContext`).
 
 ```go
 api := router.Group("/api",
@@ -258,7 +258,7 @@ func (tenantAuthorizer) Authorize(ctx context.Context, a *auth.AuthContext, req 
 registry.SetAuthorizer(tenantAuthorizer{})
 ```
 
-Return `nil` to allow. Any error becomes a 403 with the error's text. Wrap `auth.ErrAuthorizationFailed` or `auth.ErrInsufficientScopes` so callers can tell the cases apart with `errors.Is`. `SetAuthorizer(nil)` is ignored, so the registry always has one. [Warden](https://github.com/xraph/warden) is built to plug in here.
+Return `nil` to allow. Any error becomes a 403; the error's text is logged, not sent. Wrap `auth.ErrAuthorizationFailed` or `auth.ErrInsufficientScopes` so callers can tell the cases apart with `errors.Is`. `SetAuthorizer(nil)` is ignored, so the registry always has one. [Warden](https://github.com/xraph/warden) is built to plug in here.
 
 ### Credentials from protocol frames
 

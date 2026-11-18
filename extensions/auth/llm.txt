@@ -128,7 +128,8 @@ and MatchesExplicitFrameCredential mark and check it. The mark grants no identit
 
 ## Responses and errors
 
-Failed sign-in: plain-text 401. Failed authorization: 403 with the authorizer's error text.
+Failed sign-in: plain-text 401. Failed authorization: plain-text 403 "Forbidden"; the reason is
+logged, not sent. The registry clones provider auth contexts (AuthContext.Clone) before writing.
 Sentinels: ErrProviderNotFound, ErrProviderExists, ErrInvalidConfiguration,
 ErrMissingCredentials, ErrInvalidCredentials, ErrInsufficientScopes, ErrAuthenticationFailed,
 ErrAuthorizationFailed, ErrTokenExpired, ErrTokenInvalid.

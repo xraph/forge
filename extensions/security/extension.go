@@ -200,6 +200,11 @@ func (e *Extension) Stop(ctx context.Context) error {
 
 	e.Logger().Info("stopping security extension")
 
+	// End the rate limiter's cleanup goroutine.
+	if e.rateLimiter != nil {
+		e.rateLimiter.Stop()
+	}
+
 	// Stop session store if enabled
 	if e.config.Session.Enabled && e.sessionStore != nil {
 		if err := e.sessionStore.Disconnect(ctx); err != nil {

@@ -122,8 +122,8 @@ Leave out `JWT_SIGNING_KEY` and the app refuses to start. That is the default be
 | Security headers on every response | `X-Frame-Options`, `X-Content-Type-Options`, HSTS, `Referrer-Policy` and more, with a stricter `WithSecureHeaders()` preset and a CSP builder |
 | Rate limiting in Go | An in-memory token bucket per client IP, with `X-Ratelimit-*` and `Retry-After` headers |
 | CORS for a browser front end | Allowed origins (including `*.example.com` patterns), methods, headers, credentials, preflight caching and private network access |
-| CSRF protection | A double-submit token in a cookie and the `X-CSRF-Token` header, checked on unsafe methods |
-| JWT authentication | `JWTManager` to issue and verify HMAC-signed tokens, `JWTMiddleware`, and `RequireRoles` |
+| CSRF protection | A signed double-submit token in a cookie and the `X-CSRF-Token` header, checked on unsafe methods |
+| JWT authentication | `JWTManager` to issue and verify HMAC, RSA, ECDSA or Ed25519 signed tokens, `JWTMiddleware`, and `RequireRoles` |
 | Cookie sessions | An in-memory session store, `CreateSession`, `SessionMiddleware`, `RequireSession` and `DestroySession` |
 | API keys | `APIKeyManager` to create, validate, revoke and list keys, `APIKeyMiddleware`, and `RequireScopes` |
 | Password storage | Argon2id (default) or bcrypt through `PasswordHasher`, plus strength checks and rehash detection |
@@ -146,17 +146,21 @@ Each feature has an auto-apply switch. When it's on, the extension hands that mi
 | Audit | `WithAutoApplyAudit(true)` | `AuditMiddleware(auditLogger)` |
 | Sessions | `WithAutoApplyMiddleware(true)` | `SessionMiddleware(opts)`, then `RequireSession(...)` or `RequireSessionSimple()` |
 
-Global middleware runs before route middleware. What it stores with `ctx.Set` (the session, JWT claims, API key info) is visible to your route middleware and your handler, so an auto-applied `JWTMiddleware` and a handler that calls `security.GetJWTClaims(ctx)` work together. None of these middlewares put their values in the request context, though. Read them through the `forge.Context`, not `ctx.Context()`.
+Global middleware runs before route middleware. What it stores with `ctx.Set` (the session, JWT claims, API key info) is visible to your route middleware and your handler, so an auto-applied `JWTMiddleware` and a handler that calls `security.GetJWTClaims(ctx)` work together. The session, JWT and API key middlewares also put their values in the request context, so `security.GetSession(ctx.Context())`, `GetJWTClaimsFromStdContext` and `GetAPIKeyInfoFromStdContext` work too.
 
-The rate limiter keys on `X-Real-IP`, then the first `X-Forwarded-For` address, then the connection's address. Those headers are whatever the client sends, so put the service behind a proxy that overwrites them before you rely on the limit.
+A `SkipPaths` entry covers that path and everything below it, on a segment boundary: `/public` skips `/public` and `/public/css/app.css`, but not `/publicity`.
+
+The rate limiter keys on the connection's address. `X-Forwarded-For` and `X-Real-IP` are written by the client, so they are ignored unless the connection comes from a proxy listed in `RateLimitConfig.TrustedProxies` (IPs or CIDR ranges, or `WithRateLimitTrustedProxies(...)`). Then the client is the right-most `X-Forwarded-For` address that is not itself a trusted proxy.
 
 ## JWT
 
-`JWTManager.GenerateToken(&security.JWTClaims{...})` fills in the issuer, audience, issued-at, not-before, a 1-hour expiry (`TTL`) and a random token ID, then signs. `ValidateToken` checks the signature, the time claims, and the issuer and audience when you've configured them. `GenerateRefreshToken(userID)` issues a token with `RefreshTTL` (seven days by default).
+`JWTManager.GenerateToken(&security.JWTClaims{...})` fills in the issuer, audience, issued-at, not-before, a 1-hour expiry (`TTL`) and a random token ID, then signs. `ValidateToken` checks the signature and algorithm, requires an expiry, checks the other time claims, and checks the issuer and audience when you've configured them. `GenerateRefreshToken(userID)` issues a token with `RefreshTTL` (seven days by default).
+
+Every token carries a `typ` claim. Access tokens are `access` and refresh tokens are `refresh`. `ValidateToken` and `JWTMiddleware` only accept access tokens, and `ValidateRefreshToken` only accepts refresh tokens. Set `RefreshSigningKey` to sign refresh tokens with a different key. Tokens issued by versions without the `typ` claim are rejected, so users sign in again once after upgrading.
 
 `JWTClaims` carries `UserID`, `Username`, `Email`, `Roles` and `Metadata` on top of the registered claims. `JWTMiddleware` reads the token from `Authorization: Bearer ...` by default. Set `TokenLookup` in `JWTConfig` to a comma-separated list such as `header:Authorization,query:token,cookie:jwt` to look elsewhere.
 
-The signing key is used as raw bytes, so in practice you use the HMAC methods: `HS256` (the default), `HS384` or `HS512`. Keep the key out of your source and pass it in from the environment or a secrets store.
+For `HS256` (the default), `HS384` and `HS512` the signing key is the shared secret. For `RS*`, `PS*`, `ES*` and `EdDSA` it is a PEM private key, and a service that only verifies can leave it empty and set `PublicKey` to a PEM public key instead. A key that does not parse, or an EC key on the wrong curve, fails in `NewJWTManager`. The `none` method is refused. Keep keys out of your source and pass them in from the environment or a secrets store.
 
 ## Sessions and cookies
 
@@ -196,7 +200,9 @@ err = router.GET("/account", func(ctx forge.Context) error {
 }, forge.WithMiddleware(sessions, security.RequireSessionSimple()))
 ```
 
-`SessionMiddleware` stores the session with `ctx.Set`, so `security.GetSessionFromForgeContext(ctx)` finds it. `security.GetSession(ctx.Context())` reads the request context under `security.SessionContextKey{}`, and nothing in the extension puts it there.
+`SessionMiddleware` stores the session with `ctx.Set` and in the request context, so both `security.GetSessionFromForgeContext(ctx)` and `security.GetSession(ctx.Context())` find it. `DestroySession(ctx.Context(), ...)` deletes it from the store and clears the cookie, and returns `ErrSessionNotFound` when the request has no session.
+
+Each request gets its own copy of the session. Changes you make to it are kept once you call `UpdateSession`. The middleware ends a session that has been idle for longer than `IdleTimeout` (30 minutes by default), and `AutoRenew` never extends a session past `AbsoluteTimeout` from when it was created (seven days by default).
 
 Like the JWT manager, `sec.SessionStore()` and `sec.CookieManager()` are only set after the extension registers, so define these routes in a `forge.PhaseAfterRegister` hook. Cookies default to `Secure`, `HttpOnly` and `SameSite=Lax`. A browser won't send a `Secure` cookie over plain HTTP, so during local development you'll want `WithCookieSecure(false)`.
 
@@ -238,9 +244,9 @@ err = router.GET("/reports", listReports,
 
 The middleware reads `X-API-Key` by default and rejects expired or revoked keys. If you store keys yourself, `HashAPIKey` and `VerifyAPIKeyHash` hash them with the password hasher.
 
-CSRF protection is on by default but only auto-applied when you ask for it. On the first safe request (`GET`, `HEAD`, `OPTIONS` or `TRACE`) from a client without a token, the middleware sets a `csrf_token` cookie and returns the token in an `X-Csrf-Token` response header. Later safe requests pass straight through. Your front end sends the token back in `X-CSRF-Token` on `POST`, `PUT`, `PATCH` and `DELETE`, and a missing or wrong token gets a 403. Tokens are kept in memory for 12 hours.
+CSRF protection is on by default but only auto-applied when you ask for it. On a safe request (`GET`, `HEAD`, `OPTIONS` or `TRACE`) from a client without a valid token, the middleware sets a `csrf_token` cookie, and every safe request returns the token in an `X-Csrf-Token` response header. Your front end sends the token back in `X-CSRF-Token` on `POST`, `PUT`, `PATCH` and `DELETE`, and a missing or wrong token gets a 403. Tokens are signed with HMAC and expire after 12 hours; the server stores nothing. Set `CSRFConfig.Secret` to the same value on every replica so tokens work across them and survive restarts, and `BindToSession` to tie tokens to the session.
 
-CORS defaults to allowing every origin without credentials. For a browser app on another domain, name the origin and allow credentials:
+CORS defaults to allowing every origin without credentials. `AllowOrigins ["*"]` cannot be combined with credentials; validation rejects it. For a browser app on another domain, name the origin and allow credentials:
 
 ```go
 security.NewExtension(
@@ -294,13 +300,13 @@ Configure the extension with options, or under `extensions.security` (falling ba
 
 ## Examples
 
-[`examples/security-auto-middleware`](examples/security-auto-middleware/) turns on auto-applied session middleware and builds login and profile routes. Its handlers read the session with `security.GetSession(r.Context())`, and the session middleware never puts it in the request context, so they don't find it today. Use `GetSessionFromForgeContext` as the session pattern above does.
+[`examples/security-auto-middleware`](examples/security-auto-middleware/) turns on auto-applied session middleware and builds login, profile and logout routes that read the session with `security.GetSession(r.Context())`.
 
 ## FAQ
 
 ### How do I add rate limiting to a Go API?
 
-Add `security.WithRateLimitPerIP(100, time.Minute)` and `security.WithAutoApplyRateLimit(true)` to the extension. Every route then gets a per-IP token bucket and a 429 when it runs out. Remember that the client IP comes from `X-Real-IP` or `X-Forwarded-For` when those are present.
+Add `security.WithRateLimitPerIP(100, time.Minute)` and `security.WithAutoApplyRateLimit(true)` to the extension. Every route then gets a per-IP token bucket and a 429 when it runs out. Behind a reverse proxy, list it with `security.WithRateLimitTrustedProxies("10.0.0.0/8")` so the limit applies to the client rather than the proxy.
 
 ### Why does my Forge app fail with "signing key is required for HMAC signing methods"?
 

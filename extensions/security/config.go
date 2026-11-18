@@ -2,6 +2,7 @@ package security
 
 import (
 	"errors"
+	"slices"
 	"time"
 )
 
@@ -88,10 +89,18 @@ type SessionConfig struct {
 	// TTL is the session time-to-live
 	TTL time.Duration `json:"ttl" yaml:"ttl"`
 
-	// IdleTimeout is the session idle timeout
+	// IdleTimeout ends a session that has not been used for this long.
+	// SessionMiddleware enforces it from the session's LastAccessedAt.
+	// Zero disables the idle check.
 	IdleTimeout time.Duration `json:"idle_timeout" yaml:"idle_timeout"`
 
-	// AutoRenew automatically extends session TTL on access
+	// AbsoluteTimeout is the longest a session may live, measured from its
+	// CreatedAt, no matter how often AutoRenew extends it. Zero means the
+	// larger of seven days and TTL.
+	AbsoluteTimeout time.Duration `json:"absolute_timeout" yaml:"absolute_timeout"`
+
+	// AutoRenew automatically extends session TTL on access, up to
+	// AbsoluteTimeout.
 	AutoRenew bool `json:"auto_renew" yaml:"auto_renew"`
 
 	// AutoApplyMiddleware automatically applies session middleware globally
@@ -159,6 +168,7 @@ func DefaultConfig() Config {
 			CookieName:          "forge_session",
 			TTL:                 24 * time.Hour,
 			IdleTimeout:         30 * time.Minute,
+			AbsoluteTimeout:     7 * 24 * time.Hour,
 			AutoRenew:           true,
 			AutoApplyMiddleware: false, // Default to false for backwards compatibility
 			SkipPaths:           []string{"/health", "/metrics"},
@@ -217,6 +227,10 @@ func (c *Config) Validate() error {
 		}
 	}
 
+	if c.CORS.Enabled && c.CORS.AllowCredentials && slices.Contains(c.CORS.AllowOrigins, "*") {
+		return errors.New("cors AllowOrigins [\"*\"] cannot be combined with AllowCredentials: list the trusted origins instead")
+	}
+
 	if c.Cookie.Enabled {
 		validSameSite := map[string]bool{"default": true, "lax": true, "strict": true, "none": true}
 		if !validSameSite[c.Cookie.SameSite] {
@@ -273,6 +287,14 @@ func WithSessionTTL(ttl time.Duration) ConfigOption {
 func WithSessionIdleTimeout(timeout time.Duration) ConfigOption {
 	return func(c *Config) {
 		c.Session.IdleTimeout = timeout
+	}
+}
+
+// WithSessionAbsoluteTimeout sets the maximum lifetime of a session,
+// measured from when it was created.
+func WithSessionAbsoluteTimeout(timeout time.Duration) ConfigOption {
+	return func(c *Config) {
+		c.Session.AbsoluteTimeout = timeout
 	}
 }
 

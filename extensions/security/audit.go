@@ -336,8 +336,17 @@ func AuditMiddleware(auditLogger *AuditLogger) forge.Middleware {
 				UserAgent: r.Header.Get("User-Agent"),
 			}
 
-			// Extract user information from session or JWT
-			if session, ok := GetSession(ctx.Context()); ok {
+			// Execute handler
+			err := next(ctx)
+
+			// Read the subject after the handler chain ran, so a session or JWT
+			// established by middleware registered after this one is still
+			// attributed. The forge context is checked first because that is
+			// where SessionMiddleware and JWTMiddleware always publish.
+			if session, ok := GetSessionFromForgeContext(ctx); ok && session != nil {
+				entry.UserID = session.UserID
+				entry.SessionID = session.ID
+			} else if session, ok := GetSession(ctx.Context()); ok {
 				entry.UserID = session.UserID
 				entry.SessionID = session.ID
 			} else if claims, ok := GetJWTClaims(ctx); ok {
@@ -345,9 +354,6 @@ func AuditMiddleware(auditLogger *AuditLogger) forge.Middleware {
 				entry.Username = claims.Username
 				entry.Email = claims.Email
 			}
-
-			// Execute handler
-			err := next(ctx)
 
 			// Calculate duration
 			entry.Duration = time.Since(start)

@@ -164,9 +164,11 @@ func (r *registry) Middleware(providerNames ...string) forge.Middleware {
 					continue
 				}
 
-				// Authentication succeeded
+				// Authentication succeeded. Work on a copy: the provider may
+				// hand the same object to other requests.
+				authCtx = authCtx.Clone()
 				authCtx.ProviderName = name
-				ctx.Set("auth_context", authCtx)
+				publishAuthContext(ctx, authCtx)
 
 				r.logger.Debug("authentication succeeded")
 
@@ -209,9 +211,12 @@ func (r *registry) MiddlewareAnd(providerNames ...string) forge.Middleware {
 					return ctx.String(http.StatusUnauthorized, "Unauthorized")
 				}
 
-				// Merge contexts (first provider wins for subject)
+				// Merge contexts (first provider wins for subject). The first
+				// context is cloned before anything is merged into it, so the
+				// second provider's scopes and claims never leak back into an
+				// object the first provider owns and may return again.
 				if i == 0 {
-					combinedAuthCtx = authCtx
+					combinedAuthCtx = authCtx.Clone()
 					combinedAuthCtx.ProviderName = name
 				} else {
 					// Merge claims and scopes
@@ -228,7 +233,7 @@ func (r *registry) MiddlewareAnd(providerNames ...string) forge.Middleware {
 			}
 
 			// All providers succeeded
-			ctx.Set("auth_context", combinedAuthCtx)
+			publishAuthContext(ctx, combinedAuthCtx)
 
 			r.logger.Debug("authentication succeeded (AND mode)")
 
@@ -298,9 +303,13 @@ func (r *registry) MiddlewareWithRequirement(req Requirement) forge.Middleware {
 			}
 
 			if err := r.Authorizer().Authorize(ctx.Context(), authCtx, req); err != nil {
-				r.logger.Warn("authorization denied")
+				// The reason names the scopes, roles or permissions the route
+				// needs. That is useful in the server log and a map of the
+				// authorization model for whoever is probing the API, so the
+				// client only learns that it was refused.
+				r.logger.Warn("authorization denied", forge.F("reason", err.Error()))
 
-				return ctx.String(http.StatusForbidden, err.Error())
+				return ctx.String(http.StatusForbidden, "Forbidden")
 			}
 
 			return next(ctx)
@@ -349,4 +358,12 @@ func (r *registry) Authorizer() Authorizer {
 	defer r.mu.RUnlock()
 
 	return r.authorizer
+}
+
+// publishAuthContext makes the auth context visible to GetAuthContext (forge
+// context) and to FromContext / GetAuthContextFromStdContext (the request's
+// context.Context).
+func publishAuthContext(ctx forge.Context, authCtx *AuthContext) {
+	ctx.Set("auth_context", authCtx)
+	ctx.WithContext(WithContext(ctx.Context(), authCtx))
 }
