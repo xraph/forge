@@ -6,7 +6,9 @@ type InterceptorResult struct {
 	// Blocked indicates the request should not proceed
 	Blocked bool
 
-	// Error is returned when the interceptor blocks the request
+	// Error is returned when the interceptor blocks the request. A blocked
+	// result with a nil Error is answered with 403 Forbidden, never let
+	// through.
 	Error error
 
 	// Values to merge into the context (enrichment)
@@ -25,14 +27,29 @@ func AllowWithValues(values map[string]any) InterceptorResult {
 	return InterceptorResult{Blocked: false, Values: values}
 }
 
-// Block returns a result that blocks the request with an error.
+// Block returns a result that blocks the request with an error. A nil err
+// still blocks, with 403 Forbidden.
 func Block(err error) InterceptorResult {
-	return InterceptorResult{Blocked: true, Error: err}
+	return InterceptorResult{Blocked: true, Error: blockedError(err)}
 }
 
-// BlockWithValues blocks the request but still provides values (useful for debugging/logging).
+// BlockWithValues blocks the request but still provides values (useful for
+// debugging/logging). A nil err still blocks, with 403 Forbidden.
 func BlockWithValues(err error, values map[string]any) InterceptorResult {
-	return InterceptorResult{Blocked: true, Error: err, Values: values}
+	return InterceptorResult{Blocked: true, Error: blockedError(err), Values: values}
+}
+
+// blockedError is the error a blocked request is answered with. The executor
+// used to return a blocked result's Error as is, and a nil error reads as
+// success to its caller, so Block(err) with an err that happened to be nil,
+// or Not(x, nil), let the request through to the handler. A block always
+// fails closed now.
+func blockedError(err error) error {
+	if err != nil {
+		return err
+	}
+
+	return Forbidden("request blocked")
 }
 
 // InterceptorFunc is a function that inspects a request and decides

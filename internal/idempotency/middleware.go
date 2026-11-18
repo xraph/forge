@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -222,6 +223,11 @@ func Clock(now func() time.Time) Option {
 // a request holds a key, a duplicate that cannot
 // wait gets 409 with Retry-After: 1, so a client can tell the conflict is
 // temporary.
+//
+// A store may refuse a new key because its principal is over a storage quota
+// (Begin returns an error matching ErrQuotaExceeded, as MemoryStore does). The
+// request then gets 429, with Retry-After when the store says how long, and
+// the handler does not run.
 //
 // A second layer inside the first (a group and a route that both opted in)
 // steps aside, because the outer layer already holds the claim.
@@ -471,6 +477,10 @@ func (h *handler) serve(ctx router.Context, next router.Handler, key Key, fp str
 
 	for {
 		begun, err := h.cfg.store.Begin(ctx.Context(), key, fp, h.cfg.lease)
+		if errors.Is(err, ErrQuotaExceeded) {
+			return writeQuotaExceeded(ctx, err)
+		}
+
 		if err != nil {
 			return err
 		}
@@ -661,6 +671,20 @@ func writeBusy(ctx router.Context) error {
 	ctx.Response().Header().Set("Retry-After", "1")
 
 	return writeError(ctx, http.StatusConflict, "a request with this Idempotency-Key is still being processed")
+}
+
+// writeQuotaExceeded answers a request whose principal has too many stored
+// responses to take another key. The handler does not run, so the client can
+// retry once Retry-After passes, when the principal's soonest response
+// expires.
+func writeQuotaExceeded(ctx router.Context, err error) error {
+	if qe, ok := errors.AsType[*QuotaError](err); ok && qe.RetryAfter > 0 {
+		seconds := int64((qe.RetryAfter + time.Second - 1) / time.Second)
+		ctx.Response().Header().Set("Retry-After", strconv.FormatInt(seconds, 10))
+	}
+
+	return writeError(ctx, http.StatusTooManyRequests,
+		"too many idempotent requests are stored for this caller; retry after the earlier ones expire")
 }
 
 func writeError(ctx router.Context, status int, message string) error {

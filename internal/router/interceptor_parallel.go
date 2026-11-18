@@ -80,23 +80,24 @@ func Parallel(interceptors ...Interceptor) Interceptor {
 		// Collect results
 		mergedValues := make(map[string]any)
 
-		var firstBlockError error
+		// Track the block separately from its error. Testing the error for
+		// nil let a block that carried no error through as an allow.
+		var (
+			blocked         bool
+			firstBlockError error
+		)
 
 		for pr := range results {
-			if pr.result.Blocked {
-				if firstBlockError == nil {
-					firstBlockError = pr.result.Error
-				}
-
-				// Still collect values for debugging
-				maps.Copy(mergedValues, pr.result.Values)
-			} else {
-				// Merge values from successful interceptors
-				maps.Copy(mergedValues, pr.result.Values)
+			if pr.result.Blocked && !blocked {
+				blocked = true
+				firstBlockError = pr.result.Error
 			}
+
+			// Values are kept from blocked interceptors too, for debugging.
+			maps.Copy(mergedValues, pr.result.Values)
 		}
 
-		if firstBlockError != nil {
+		if blocked {
 			return BlockWithValues(firstBlockError, mergedValues)
 		}
 

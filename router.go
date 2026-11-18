@@ -1,6 +1,7 @@
 package forge
 
 import (
+	"net/http"
 	"time"
 
 	"github.com/xraph/forge/errors"
@@ -142,6 +143,15 @@ func WithTimeout(d time.Duration) RouteOption {
 // value for no limit on this route.
 func WithMaxBodySize(bytes int64) RouteOption {
 	return router.WithMaxBodySize(bytes)
+}
+
+// SetRequestBodyLimit changes the body cap the router put on r, for handlers
+// mounted with Router.Handle, which have no route options. Call it before
+// reading the body; a limit of zero or less removes the cap. It returns false
+// and changes nothing when r's body is not the one the router capped (the
+// router has no limit, or a middleware replaced the body).
+func SetRequestBodyLimit(r *http.Request, limit int64) bool {
+	return router.SetRequestBodyLimit(r, limit)
 }
 
 func WithMetadata(key string, value any) RouteOption {
