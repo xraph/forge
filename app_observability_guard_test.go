@@ -8,7 +8,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/xraph/go-utils/log"
 
@@ -34,7 +33,7 @@ func newExposureApp(t *testing.T, env string, opts ...AppOption) (App, *log.Test
 	cfg := DefaultAppConfig()
 	cfg.Name = "prodapp"
 	cfg.Environment = env
-	cfg.HealthGracePeriod = time.Nanosecond
+	cfg.HealthGracePeriod = 0 // a 1ns period still reads as "starting" on Windows, whose clock can report zero uptime
 	cfg.EnableConfigAutoDiscovery = false
 	cfg.Logger = logs
 	cfg.Extensions = []Extension{&leakyExtension{NewBaseExtension("database", "1.2.3", "db")}}
