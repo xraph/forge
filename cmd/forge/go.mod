@@ -32,7 +32,7 @@ require (
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/joho/godotenv v1.5.1
 	github.com/stretchr/testify v1.11.1
-	github.com/xraph/forge v1.13.7-0.20261112002252-f4f317299528
+	github.com/xraph/forge v1.14.2
 	golang.org/x/mod v0.41.0
 	golang.org/x/text v0.42.0
 	gopkg.in/yaml.v3 v3.0.1
