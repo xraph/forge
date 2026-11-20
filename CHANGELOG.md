@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.14.3](https://github.com/xraph/forge/compare/v1.14.2...v1.14.3) (2026-11-20)
+
+
+### Maintenance
+
+* **cmd/forge:** require forge v1.14.2 (#134) ([c3600228](https://github.com/xraph/forge/commit/c3600228))
+* **changelog:** update CHANGELOG.md for v1.14.2 ([35e1cd51](https://github.com/xraph/forge/commit/35e1cd51))
+
 ## [1.14.2](https://github.com/xraph/forge/compare/v1.14.1...v1.14.2) (2026-11-20)
 
 
