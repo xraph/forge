@@ -448,7 +448,7 @@ func compositionTarget(s *Schema, depth int) (string, bool) {
 	list := false
 
 	for _, member := range members {
-		if member == nil || member.Type == "null" {
+		if member == nil || isNullSchema(member) {
 			continue
 		}
 
@@ -466,4 +466,22 @@ func compositionTarget(s *Schema, depth int) (string, bool) {
 	}
 
 	return found, list
+}
+
+// isNullSchema reports whether s admits only null, in either spelling forge
+// documents use: OpenAPI 3.1's `type: "null"`, and the 3.0 idiom the router's
+// own generator writes for a Go pointer, `{type: object, nullable: true,
+// enum: [null]}`. Treating only the first as null made every `[]*T` envelope
+// look like a wrapper around an unnamed type, so it provided no cache tags.
+func isNullSchema(s *Schema) bool {
+	if s == nil {
+		return false
+	}
+
+	if s.Type == "null" {
+		return true
+	}
+
+	return s.Nullable && s.Ref == "" && len(s.Enum) == 1 && s.Enum[0] == nil &&
+		len(s.Properties) == 0 && len(s.OneOf) == 0 && len(s.AnyOf) == 0 && len(s.AllOf) == 0
 }

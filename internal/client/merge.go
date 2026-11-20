@@ -180,7 +180,68 @@ func MergeSpecs(specs ...*APISpec) *APISpec {
 	out.WebTransports = keepFirst(out.WebTransports, "webtransport stream",
 		func(wt WebTransportEndpoint) string { return streamKey(wt.ID, wt.Path) }, &out.Warnings)
 
+	renameMergedStreamEntities(out)
+
 	return out
+}
+
+// renameMergedStreamEntities resolves stream binding entity names against the
+// merged schemas.
+//
+// Each source resolved its own bindings when it was parsed, but only against
+// its own components. An AsyncAPI document that never saw the collision still
+// names `cloudprofiles.Target` plain `Target`, while the OpenAPI document,
+// which also carries `planning.Target`, calls it `CloudprofilesTarget` and
+// marks it with x-forge-type. Until both are in one place nothing can match
+// the two, so a frame upserted `Target:7` while every REST read held
+// `CloudprofilesTarget:7`, and live updates never reached the screen.
+//
+// Bindings are copied before renaming: the slices still belong to the
+// sources, and a caller holding one must not see it change underneath it.
+func renameMergedStreamEntities(out *APISpec) {
+	rename := func(bindings []StreamBinding) []StreamBinding {
+		if len(bindings) == 0 {
+			return bindings
+		}
+
+		cp := make([]StreamBinding, len(bindings))
+		for i, b := range bindings {
+			b.Invalidates = append([]string(nil), b.Invalidates...)
+			cp[i] = b
+		}
+
+		resolveStreamEntityNames(out, cp)
+
+		for _, b := range cp {
+			if b.EntityType == "" {
+				continue
+			}
+
+			if _, ok := out.Entities[b.EntityType]; ok {
+				continue
+			}
+
+			if schema, ok := out.Schemas[b.EntityType]; ok {
+				if entity := InferEntity(out, b.EntityType, schema); entity != nil {
+					out.Entities[b.EntityType] = entity
+				}
+			}
+		}
+
+		return cp
+	}
+
+	for i := range out.WebSockets {
+		out.WebSockets[i].StreamBindings = rename(out.WebSockets[i].StreamBindings)
+	}
+
+	for i := range out.SSEs {
+		out.SSEs[i].StreamBindings = rename(out.SSEs[i].StreamBindings)
+	}
+
+	for i := range out.WebTransports {
+		out.WebTransports[i].StreamBindings = rename(out.WebTransports[i].StreamBindings)
+	}
 }
 
 // keepFirst drops every element whose identity a previous element already
