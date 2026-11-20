@@ -219,3 +219,54 @@ func TestInferredEnvelopeYieldsToRouteOptOut(t *testing.T) {
 		t.Fatalf("opt-out left Entity=%+v RootType=%q", ep.Entity, ep.RootType)
 	}
 }
+
+// A Go `[]*Order` reaches the document as an array whose items are
+// `oneOf: [$ref Order, {type: object, nullable: true, enum: [null]}]`, which
+// is how the router spells a nullable reference in OpenAPI 3.0. The null
+// member names nothing and must be skipped, exactly as `type: "null"` is, or
+// every pointer-slice envelope loses its collection tag.
+func TestEnvelopeOverPointerSliceProvidesCollectionTag(t *testing.T) {
+	pointerItems := &Schema{Type: "array", Items: &Schema{OneOf: []*Schema{
+		{Ref: "#/components/schemas/Order"},
+		{Type: "object", Nullable: true, Enum: []any{nil}},
+	}}}
+
+	for _, tc := range []struct {
+		name string
+		ext  map[string]any
+	}{
+		{"declared", map[string]any{"x-forge-envelope": "orders"}},
+		{"inferred", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			spec := inferSpec(map[string]*Schema{"orders": pointerItems}, tc.ext)
+
+			ep := inferEP("GET")
+			resolveEndpointCacheMeta(spec, ep, nil)
+
+			if ep.Entity == nil || ep.Entity.Type != "Order" {
+				t.Fatalf("Entity = %+v, want Order", ep.Entity)
+			}
+
+			if got := strings.Join(ep.CacheTags.Provides, ","); got != "Order:{id},Order[]" {
+				t.Fatalf("provides = %q, want Order:{id},Order[]", got)
+			}
+
+			if len(spec.Warnings) != 0 {
+				t.Fatalf("warnings = %v, want none", spec.Warnings)
+			}
+		})
+	}
+}
+
+// A nullable member that carries an enum of real values is not the null
+// idiom, so it still makes the wrapper ambiguous.
+func TestNullableEnumWithValuesIsNotNull(t *testing.T) {
+	if isNullSchema(&Schema{Type: "string", Nullable: true, Enum: []any{"a", nil}}) {
+		t.Fatal("a nullable enum with values is not a null-only schema")
+	}
+
+	if !isNullSchema(&Schema{Type: "null"}) {
+		t.Fatal(`type "null" is null`)
+	}
+}

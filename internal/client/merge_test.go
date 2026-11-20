@@ -542,3 +542,49 @@ func TestMergeSpecsRequiredOrderIsIgnored(t *testing.T) {
 		t.Errorf("required lists with the same members in a different order must not warn, got %v", got.Warnings)
 	}
 }
+
+// A type renamed only in the OpenAPI document (it collides there, not in the
+// AsyncAPI one) must still bind its frames to the REST entity, or a frame and
+// a read of the same record land under two different cache keys.
+func TestMergeSpecsRenamesStreamEntityToRESTComponent(t *testing.T) {
+	const goType = "example.com/app/internal/clouds.Target"
+
+	rest := &client.APISpec{
+		Kind: client.SourceOpenAPI,
+		Schemas: map[string]*client.Schema{
+			"CloudsTarget": {
+				Type:       "object",
+				Properties: map[string]*client.Schema{"id": {Type: "string"}},
+				Extensions: map[string]any{"x-forge-type": goType},
+			},
+		},
+		Entities: map[string]*client.EntityRef{"CloudsTarget": {Type: "CloudsTarget", IDField: "id"}},
+	}
+
+	bindings := []client.StreamBinding{{
+		Message: "target.updated", EntityType: "Target", Intent: "upsert",
+		Invalidates: []string{"Target[]"}, Type: goType,
+	}}
+	stream := &client.APISpec{
+		Kind: client.SourceAsyncAPI,
+		Schemas: map[string]*client.Schema{
+			"Target": {Type: "object", Properties: map[string]*client.Schema{"id": {Type: "string"}}},
+		},
+		Entities:   map[string]*client.EntityRef{"Target": {Type: "Target", IDField: "id"}},
+		WebSockets: []client.WebSocketEndpoint{{Path: "/ws", StreamBindings: bindings}},
+	}
+
+	got := client.MergeSpecs(rest, stream).WebSockets[0].StreamBindings[0]
+
+	if got.EntityType != "CloudsTarget" {
+		t.Fatalf("EntityType = %q, want CloudsTarget, the name REST reads use", got.EntityType)
+	}
+
+	if strings.Join(got.Invalidates, ",") != "CloudsTarget[]" {
+		t.Fatalf("Invalidates = %v, want the derived collection tag renamed with it", got.Invalidates)
+	}
+
+	if bindings[0].EntityType != "Target" || bindings[0].Invalidates[0] != "Target[]" {
+		t.Fatalf("the source binding was mutated: %+v", bindings[0])
+	}
+}
