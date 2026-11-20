@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.14.2](https://github.com/xraph/forge/compare/v1.14.1...v1.14.2) (2026-11-20)
+
+
+### Bug Fixes
+
+* **client:** keep cache tags on pointer-slice envelopes and renamed stream entities (#133) ([be91306f](https://github.com/xraph/forge/commit/be91306f))
+
+
+### Maintenance
+
+* **changelog:** update CHANGELOG.md for v1.14.1 ([3075e620](https://github.com/xraph/forge/commit/3075e620))
+
 ## [1.14.1](https://github.com/xraph/forge/compare/v1.14.0...v1.14.1) (2026-11-18)
 
 
